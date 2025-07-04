@@ -10,20 +10,20 @@ namespace SmtpRelay
     {
         static void Main(string[] args)
         {
-            // Shared folders
+            // where the service keeps its logs
             var baseDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service");
             var logDir = Path.Combine(baseDir, "logs");
             Directory.CreateDirectory(logDir);
 
-            // Serilog: only a single rolling app log
+            // Serilog: ONLY the general app log
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(
                     Path.Combine(logDir, "app-.log"),
                     rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 7)
+                    retainedFileCountLimit: 30)
                 .CreateLogger();
 
             try
