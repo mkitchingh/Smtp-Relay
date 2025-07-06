@@ -1,6 +1,7 @@
 // src/SmtpRelay/Program.cs
 using System;
 using System.IO;
+using Microsoft.Extensions.DependencyInjection;   // ← add this
 using Microsoft.Extensions.Hosting;
 using Serilog;
 
