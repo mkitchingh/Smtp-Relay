@@ -1,10 +1,8 @@
-// src/SmtpRelay/Program.cs
 using System;
 using System.IO;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Serilog.Filters;
 
 namespace SmtpRelay
 {
@@ -12,6 +10,7 @@ namespace SmtpRelay
     {
         static void Main(string[] args)
         {
+            // where we keep our logs
             var baseDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service");
@@ -20,18 +19,11 @@ namespace SmtpRelay
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                // general application log
+                // only the general application log
                 .WriteTo.File(
                     Path.Combine(logDir, "app-.log"),
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 7)
-                // plain SMTP log: only events from your Worker (relay requests/results)
-                .WriteTo.Logger(lc => lc
-                    .Filter.ByIncludingOnly(Matching.FromSource("SmtpRelay.Worker"))
-                    .WriteTo.File(
-                        Path.Combine(logDir, "smtp-.log"),
-                        rollingInterval: RollingInterval.Day,
-                        retainedFileCountLimit: 7))
                 .CreateLogger();
 
             try
