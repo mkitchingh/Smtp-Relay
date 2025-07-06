@@ -1,35 +1,54 @@
-// src/SmtpRelay/Program.cs
 using System;
 using System.IO;
-using Microsoft.Extensions.DependencyInjection;   // ← add this
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Serilog.Filters.Expressions;
 
 namespace SmtpRelay
 {
     internal static class Program
     {
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            // ensure the shared log folder exists
+            // where we store logs
             var baseDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service");
             var logDir = Path.Combine(baseDir, "logs");
             Directory.CreateDirectory(logDir);
 
+            // two rolling-daily files...
+            var appLog     = Path.Combine(logDir, "app-.log");
+            var smtpLog    = Path.Combine(logDir, "smtp-.log");
+
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                // general application log
+
+                // 1) General application log (everything, unchanged)
                 .WriteTo.File(
-                    Path.Combine(logDir, "app-.log"),
+                    appLog,
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 7)
-                // combined SMTP + protocol log
-                .WriteTo.File(
-                    Path.Combine(logDir, "smtp-.log"),
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 7)
+
+                // 2) SMTP summary events (your RelayStore/Worker logs)
+                .WriteTo.Logger(lc => lc
+                    .Filter.ByIncludingOnly(
+                        Matching.FromSource("SmtpRelay.Worker"))
+                    .WriteTo.File(
+                        smtpLog,
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 7))
+
+                // 3) SMTP protocol trace (all SmtpServer.Protocol.* traffic)
+                .WriteTo.Logger(lc => lc
+                    .Filter.ByIncludingOnly(
+                        Matching.FromSource("SmtpServer"))
+                    .WriteTo.File(
+                        smtpLog,
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 7))
+
                 .CreateLogger();
 
             try
