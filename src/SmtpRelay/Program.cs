@@ -3,6 +3,7 @@ using System.IO;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Serilog.Filters;
 
 namespace SmtpRelay
 {
@@ -10,7 +11,7 @@ namespace SmtpRelay
     {
         static void Main(string[] args)
         {
-            // where we keep our logs
+            // ensure service folder + log folder
             var baseDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service");
@@ -19,11 +20,24 @@ namespace SmtpRelay
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                // only the general application log
+
+                // 1) General application log:
                 .WriteTo.File(
                     Path.Combine(logDir, "app-.log"),
                     rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 7)
+                    retainedFileCountLimit: 30)   // or hook into your RetentionDays
+
+                // 2) Single SMTP log (merges both relay-events & protocol trace)
+                .WriteTo.Logger(lc => lc
+                    // include any events from your Worker (SmtpRelay namespace)…
+                    .Filter.ByIncludingOnly(Matching.FromSource("SmtpRelay.Worker"))
+                    // …and all the low-level protocol logs under "SmtpServer"
+                    .Filter.ByIncludingOnly(Matching.FromSource("SmtpServer"))
+                    .WriteTo.File(
+                        Path.Combine(logDir, "smtp-.log"),
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 30))
+
                 .CreateLogger();
 
             try
