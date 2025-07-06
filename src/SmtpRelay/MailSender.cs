@@ -1,6 +1,6 @@
 using System;
-using System.IO;
 using System.Buffers;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
@@ -12,76 +12,57 @@ namespace SmtpRelay
 {
     public static class MailSender
     {
-        private static readonly string BaseDir = Path.Combine(
-            Environment.GetFolderPath(
-                Environment.SpecialFolder.ProgramFiles),
-            "SMTP Relay", "service");
-
-        private static readonly string LogDir = Path.Combine(BaseDir, "logs");
-
-        public static async Task SendAsync(
-            Config cfg,
-            ReadOnlySequence<byte> buffer,
-            CancellationToken ct)
+        // Called from Worker.RelayStore.SaveAsync(...)
+        public static async Task SendAsync(Config cfg, ReadOnlySequence<byte> buffer, CancellationToken ct)
         {
-            // Ensure logs directory exists
-            Directory.CreateDirectory(LogDir);
+            // Ensure log folder exists and build our protocol-log path
+            var baseDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "SMTP Relay", "service");
+            var logDir = Path.Combine(baseDir, "logs");
+            Directory.CreateDirectory(logDir);
 
-            // Protocol transcript file: smtp-proto-YYYYMMDD.log
-            var protoPath = Path.Combine(
-                LogDir,
-                $"smtp-proto-{DateTime.Now:yyyyMMdd}.log");
+            // We'll write protocol traffic to smtp-YYYYMMDD.log
+            var protoLogPath = Path.Combine(
+                logDir,
+                $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
-            // Attach our filtered logger to the outgoing client
-            using var client = new SmtpClient(
-                new FilteredProtocolLogger(protoPath));
+            // MailKit client with protocol logger
+            using var protocolLogger = new ProtocolLogger(protoLogPath, append: true);
+            using var client = new SmtpClient(protocolLogger);
 
             try
             {
-                Log.Information(
-                    "Connecting to {Host}:{Port} (STARTTLS={Tls})",
+                // parse the incoming message
+                var data = buffer.ToArray();
+                var message = MimeMessage.Load(new MemoryStream(data));
+
+                Log.Information("Connecting to {Host}:{Port} (STARTTLS={UseTls})",
                     cfg.SmartHost, cfg.SmartHostPort, cfg.UseStartTls);
 
-                var socketOpts = cfg.UseStartTls
-                    ? SecureSocketOptions.StartTls
-                    : SecureSocketOptions.None;
-
                 await client.ConnectAsync(
-                        cfg.SmartHost,
-                        cfg.SmartHostPort,
-                        socketOpts,
-                        ct)
-                    .ConfigureAwait(false);
+                    cfg.SmartHost,
+                    cfg.SmartHostPort,
+                    cfg.UseStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.Auto,
+                    ct);
 
-                if (!string.IsNullOrWhiteSpace(cfg.Username))
+                if (!string.IsNullOrEmpty(cfg.Username))
                 {
-                    Log.Information("Authenticating as {User}", cfg.Username);
-                    await client.AuthenticateAsync(
-                            cfg.Username, cfg.Password, ct)
-                        .ConfigureAwait(false);
+                    Log.Information("Authenticating as {Username}", cfg.Username);
+                    await client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
                 }
 
-                // Load the inbound message
-                using var ms = new MemoryStream(buffer.ToArray());
-                var message = await MimeMessage
-                    .LoadAsync(ms, ct)
-                    .ConfigureAwait(false);
-
-                Log.Information(
-                    "Sending message from {From} to {To}",
+                Log.Information("Sending message from {From} to {To}",
                     message.From, message.To);
 
-                await client.SendAsync(message, ct)
-                            .ConfigureAwait(false);
-
-                await client.DisconnectAsync(true, ct)
-                            .ConfigureAwait(false);
+                await client.SendAsync(message, ct);
+                await client.DisconnectAsync(true, ct);
 
                 Log.Information("Smarthost relay complete");
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error relaying message to smarthost");
+                Log.Error(ex, "Relay failure");
                 throw;
             }
         }
