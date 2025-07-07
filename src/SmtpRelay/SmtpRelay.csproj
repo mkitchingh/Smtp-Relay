@@ -1,32 +1,25 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- we list each .cs explicitly below -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- logging -->
-    <PackageReference Include="Serilog" Version="4.2.0" />
-    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
-    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-
-    <!-- JSON config -->
-    <PackageReference Include="System.Text.Json" Version="8.0.0" />
-
-    <!-- IP/CIDR parsing -->
-    <PackageReference Include="NetTools" Version="1.0.0" />
-
-    <!-- SMTP relay and parsing -->
-    <PackageReference Include="MailKit" Version="4.1.0" />
-    <PackageReference Include="MimeKit" Version="4.4.0" />
-
-    <!-- inbound SMTP server -->
-    <PackageReference Include="SmtpServer" Version="11.0.0" />
+    <!-- your two entry‐point files -->
+    <Compile Include="Program.cs" />
+    <Compile Include="Worker.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="SmtpServer"               Version="11.0.0" />
+    <PackageReference Include="MailKit"                  Version="4.1.0" />
+    <PackageReference Include="MimeKit"                  Version="4.4.0" />
+    <PackageReference Include="Serilog"                  Version="2.12.0" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.File"       Version="7.0.0" />
+  </ItemGroup>
 </Project>
