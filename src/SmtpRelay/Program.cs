@@ -2,7 +2,8 @@ using System;
 using System.IO;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Serilog.Filters.Expressions;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace SmtpRelay
 {
@@ -10,7 +11,7 @@ namespace SmtpRelay
     {
         public static void Main(string[] args)
         {
-            // make sure log folder exists
+            // ensure log directory exists
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service", "logs");
@@ -19,22 +20,29 @@ namespace SmtpRelay
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Debug()
                 .Enrich.FromLogContext()
-                
-                // Primary application log
+
+                // general application log
                 .WriteTo.File(
                     Path.Combine(logDir, "app-.log"),
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
                     rollingInterval: RollingInterval.Day
                 )
-                // SMTP‐conversation log (filtered on SmtpServer source)
+
+                // smtp‐conversation log: filter by SourceContext == "SmtpServer"
                 .WriteTo.Logger(lc => lc
-                    .Filter.ByIncludingOnly(Matching.FromSource("SmtpServer"))
+                    .Filter.ByIncludingOnly(new Predicate<LogEvent>(evt =>
+                    {
+                        if (!evt.Properties.TryGetValue("SourceContext", out var sc)) return false;
+                        // sc.ToString() is "\"SmtpServer.Protocol.SmtpServer\""... just check prefix:
+                        return sc.ToString().StartsWith("\"SmtpServer");
+                    }))
                     .WriteTo.File(
                         Path.Combine(logDir, "smtp-.log"),
                         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [INF] {Message:lj}{NewLine}",
                         rollingInterval: RollingInterval.Day
                     )
                 )
+
                 .CreateLogger();
 
             try
@@ -50,7 +58,7 @@ namespace SmtpRelay
 
                 Host.CreateDefaultBuilder(args)
                     .UseSerilog()
-                    .ConfigureServices((hostCtx, services) =>
+                    .ConfigureServices((_, services) =>
                     {
                         services.AddSingleton(cfg);
                         services.AddHostedService<Worker>();
