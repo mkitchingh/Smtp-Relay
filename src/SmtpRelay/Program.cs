@@ -10,14 +10,14 @@ namespace SmtpRelay
     {
         static void Main(string[] args)
         {
-            // Shared folders
+            // prepare log folder
             var baseDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service");
             var logDir = Path.Combine(baseDir, "logs");
             Directory.CreateDirectory(logDir);
 
-            // Serilog: only a single rolling app log
+            // only app-level log here
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(
