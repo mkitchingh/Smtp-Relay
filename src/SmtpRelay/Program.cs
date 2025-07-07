@@ -1,9 +1,8 @@
 using System;
 using System.IO;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Serilog.Filters;
+using Serilog.Events;
 
 namespace SmtpRelay
 {
@@ -11,51 +10,65 @@ namespace SmtpRelay
     {
         public static void Main(string[] args)
         {
-            // build log directory
-            var baseDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "SMTP Relay", "service");
-            var logDir = Path.Combine(baseDir, "logs");
-            Directory.CreateDirectory(logDir);
+            // prepare log directories
+            var basePath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var servicePath = Path.Combine(basePath, "SMTP Relay", "service");
+            var logPath     = Path.Combine(servicePath, "logs");
+            Directory.CreateDirectory(logPath);
 
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
+                .MinimumLevel.Debug()
+                .Enrich.FromLogContext()
 
-                // 1) General application log
+                // your existing application log sink
                 .WriteTo.File(
-                    Path.Combine(logDir, "app-.log"),
+                    path: Path.Combine(logPath, "app-.log"),
                     rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 30)
+                    retainedFileCountLimit: 31,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
 
-                // 2) SMTP‐only log (protocol + relay events)
+                // new: all SMTP‐server + MailKit events into one smtp-*.log
                 .WriteTo.Logger(lc => lc
-                    .Filter.ByIncludingOnly(Matching.FromSource("SmtpServer"))
+                    // filter on events coming from our SMTP server implementation
+                    .Filter.ByIncludingOnly(evt =>
+                        evt.Properties.ContainsKey("SourceContext") &&
+                        (
+                            evt.Properties["SourceContext"].ToString().Contains("SmtpRelay.Worker") ||
+                            evt.Properties["SourceContext"].ToString().Contains("MailKit") ||
+                            evt.Properties["SourceContext"].ToString().Contains("SmtpServer")
+                        )
+                    )
                     .WriteTo.File(
-                        Path.Combine(logDir, "smtp-.log"),
+                        path: Path.Combine(logPath, "smtp-.log"),
                         rollingInterval: RollingInterval.Day,
-                        retainedFileCountLimit: 30))
-
+                        retainedFileCountLimit: 31,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                    )
+                )
                 .CreateLogger();
 
             try
             {
-                Log.Information("SMTP Relay service starting up");
-                Host.CreateDefaultBuilder(args)
-                    .UseWindowsService()
-                    .UseSerilog()
-                    .ConfigureServices((_, services) =>
-                        services.AddHostedService<Worker>())
-                    .Build()
-                    .Run();
+                Log.Information("Starting up SMTP Relay");
+                CreateHostBuilder(args).Build().Run();
             }
             catch (Exception ex)
             {
-                Log.Fatal(ex, "Service terminated unexpectedly");
+                Log.Fatal(ex, "Host terminated unexpectedly");
             }
             finally
             {
                 Log.CloseAndFlush();
             }
         }
+
+        private static IHostBuilder CreateHostBuilder(string[] args) =>
+            Host.CreateDefaultBuilder(args)
+                .UseSerilog() // wire Serilog into the Generic Host
+                .ConfigureServices((hostCtx, services) =>
+                {
+                    services.AddHostedService<Worker>();
+                });
     }
 }
