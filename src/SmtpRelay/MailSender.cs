@@ -10,61 +10,44 @@ using Serilog;
 
 namespace SmtpRelay
 {
+    /// <summary>
+    /// Handles relaying an incoming SMTP message buffer to the smart host.
+    /// </summary>
     public static class MailSender
     {
-        // Called from Worker.RelayStore.SaveAsync(...)
+        /// <summary>
+        /// Sends the message contained in <paramref name="buffer"/> via the configured smart host.
+        /// </summary>
         public static async Task SendAsync(Config cfg, ReadOnlySequence<byte> buffer, CancellationToken ct)
         {
-            // Ensure log folder exists and build our protocol-log path
-            var baseDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "SMTP Relay", "service");
-            var logDir = Path.Combine(baseDir, "logs");
-            Directory.CreateDirectory(logDir);
+            // Load the incoming message
+            var raw = buffer.ToArray();
+            var message = MimeMessage.Load(new MemoryStream(raw));
 
-            // We'll write protocol traffic to smtp-YYYYMMDD.log
-            var protoLogPath = Path.Combine(
-                logDir,
-                $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            // Log that we're attempting to connect
+            Log.Information(
+                "Connecting to smarthost {Host}:{Port} (STARTTLS={Tls})",
+                cfg.SmartHost, cfg.SmartHostPort, cfg.UseStartTls);
 
-            // MailKit client with protocol logger
-            using var protocolLogger = new ProtocolLogger(protoLogPath, append: true);
-            using var client = new SmtpClient(protocolLogger);
+            using var client = new SmtpClient();
+            await client.ConnectAsync(
+                cfg.SmartHost,
+                cfg.SmartHostPort,
+                cfg.UseStartTls
+                    ? SecureSocketOptions.StartTls
+                    : SecureSocketOptions.Auto,
+                ct);
 
-            try
+            if (!string.IsNullOrEmpty(cfg.Username))
             {
-                // parse the incoming message
-                var data = buffer.ToArray();
-                var message = MimeMessage.Load(new MemoryStream(data));
-
-                Log.Information("Connecting to {Host}:{Port} (STARTTLS={UseTls})",
-                    cfg.SmartHost, cfg.SmartHostPort, cfg.UseStartTls);
-
-                await client.ConnectAsync(
-                    cfg.SmartHost,
-                    cfg.SmartHostPort,
-                    cfg.UseStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.Auto,
-                    ct);
-
-                if (!string.IsNullOrEmpty(cfg.Username))
-                {
-                    Log.Information("Authenticating as {Username}", cfg.Username);
-                    await client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
-                }
-
-                Log.Information("Sending message from {From} to {To}",
-                    message.From, message.To);
-
-                await client.SendAsync(message, ct);
-                await client.DisconnectAsync(true, ct);
-
-                Log.Information("Smarthost relay complete");
+                await client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
+                Log.Information("Authenticated as {User}", cfg.Username);
             }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Relay failure");
-                throw;
-            }
+
+            await client.SendAsync(message, ct);
+            await client.DisconnectAsync(true, ct);
+
+            Log.Information("Message relayed successfully");
         }
     }
 }
