@@ -8,19 +8,17 @@ namespace SmtpRelay
 {
     public class Config
     {
-        public string SmartHost       { get; set; } = "";
-        public int    SmartHostPort   { get; set; } = 25;
-        public int    ListenPort      { get; set; } = 25;    // ← Added
-
-        public string Username        { get; set; } = "";
-        public string Password        { get; set; } = "";
-        public bool   UseStartTls     { get; set; } = false;
+        public string SmartHost     { get; set; } = "";
+        public int    SmartHostPort { get; set; } = 25;
+        public string Username      { get; set; } = "";
+        public string Password      { get; set; } = "";
+        public bool   UseStartTls   { get; set; } = false;
 
         public bool AllowAllIPs       { get; set; } = true;
-        public List<string> AllowedIPs{ get; set; } = new();
+        public List<string> AllowedIPs { get; set; } = new();
 
-        public bool EnableLogging     { get; set; } = false;
-        public int  RetentionDays     { get; set; } = 30;
+        public bool EnableLogging { get; set; } = false;
+        public int  RetentionDays { get; set; } = 30;
 
         // Shared path under Program Files\SMTP Relay\config.json
         private static string FilePath
