@@ -1,12 +1,9 @@
 using System;
-using System.Buffers;
 using System.IO;
+using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
-using MailKit.Net.Smtp;
-using MailKit.Security;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using SmtpServer;
 using SmtpServer.Protocol;
@@ -25,35 +22,33 @@ namespace SmtpRelay
             _log = log;
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // shared log directory (same one you use in Program.cs)
+            // same log folder
             var baseDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "SMTP Relay", "service");
             var logDir = Path.Combine(baseDir, "logs");
+            Directory.CreateDirectory(logDir);
 
-            // build the server options, *including* the protocol logger
+            // single SMTP log file for full protocol + your "relayed mail" info
             var smtpLogFile = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
+
+            // build the SMTP-server, injecting your MessageRelayStore
             var options = new SmtpServerOptionsBuilder()
                 .ServerName("SMTP Relay")
                 .Endpoint(builder => builder
-                    .Port(_cfg.ListenPort)
-                    .AllowUnsecure()
+                    .Port(25)            // default port 25
+                    .AllowUnsecure()     // relay unencrypted
                     .Build())
                 .MessageStore(new MessageRelayStore(_cfg, _log))
-                // ← this is the only new bit: log *every* SMTP command/response
                 .ProtocolLogger(new ProtocolLogger(smtpLogFile, append: true))
                 .Build();
 
-            var serviceProvider = new ServiceProviderBuilder()
-                .UseLoggerFactory(new LoggerFactoryAdapter(_log))
-                .Build();
+            var server = new SmtpServer.SmtpServer(options);
 
-            var server = new SmtpServer.SmtpServer(options, serviceProvider);
-
-            _log.Information("SMTP Relay starting on port {Port}", _cfg.ListenPort);
-            await server.StartAsync(stoppingToken);
+            _log.Information("SMTP Relay starting on port 25");
+            return server.StartAsync(stoppingToken);
         }
     }
 }
