@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;                     // <-- for SelectMany/Trim/Where
 using System.Text.Json;
-using NetTools;                       // your IPAddressRange lives here
+using NetTools;
 
 namespace SmtpRelay
 {
@@ -54,32 +53,17 @@ namespace SmtpRelay
 
             if (!AllowAllIPs)
             {
-                // Flatten any comma‐delimited entries, trim whitespace, drop empties
-                var rawEntries = AllowedIPs
-                    .SelectMany(e => e.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                    .Select(e => e.Trim())
-                    .Where(e => e.Length > 0)
-                    .ToList();
-
-                // Validate each one
-                foreach (var entry in rawEntries)
+                foreach (var entry in AllowedIPs)
                 {
-                    try
-                    {
-                        _ = IPAddressRange.Parse(entry);
-                    }
+                    try { _ = IPAddressRange.Parse(entry); }
                     catch (Exception ex)
                     {
                         throw new FormatException(
                             $"Invalid IP or CIDR entry \"{entry}\": {ex.Message}");
                     }
                 }
-
-                // Replace the list with the normalized values
-                AllowedIPs = rawEntries;
             }
 
-            // Serialize and write
             var json = JsonSerializer.Serialize(
                 this, new JsonSerializerOptions { WriteIndented = true });
 
