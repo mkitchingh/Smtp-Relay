@@ -1,47 +1,60 @@
 using System;
 using System.IO;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Serilog.Filters;
+using Serilog.Filters.Expressions;
 
 namespace SmtpRelay
 {
     internal static class Program
     {
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            // Base directories
-            var baseDir = Path.Combine(
+            // make sure log folder exists
+            var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "SMTP Relay", "service");
-            var logDir = Path.Combine(baseDir, "logs");
+                "SMTP Relay", "service", "logs");
             Directory.CreateDirectory(logDir);
 
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                // General application log
+                .MinimumLevel.Debug()
+                .Enrich.FromLogContext()
+                
+                // Primary application log
                 .WriteTo.File(
                     Path.Combine(logDir, "app-.log"),
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 7)
-                // Single SMTP log (all messages from our SMTP server)
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                    rollingInterval: RollingInterval.Day
+                )
+                // SMTP‐conversation log (filtered on SmtpServer source)
                 .WriteTo.Logger(lc => lc
                     .Filter.ByIncludingOnly(Matching.FromSource("SmtpServer"))
                     .WriteTo.File(
                         Path.Combine(logDir, "smtp-.log"),
-                        rollingInterval: RollingInterval.Day,
-                        retainedFileCountLimit: 7))
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [INF] {Message:lj}{NewLine}",
+                        rollingInterval: RollingInterval.Day
+                    )
+                )
                 .CreateLogger();
 
             try
             {
                 Log.Information("Starting SMTP Relay Service");
+
+                var cfg = Config.Load();
+                Log.Information(
+                    "Relay mode: {Mode}",
+                    cfg.AllowAllIPs
+                        ? "Allow All"
+                        : $"Allow {cfg.AllowedIPs.Count} range(s)");
+
                 Host.CreateDefaultBuilder(args)
-                    .UseWindowsService()
                     .UseSerilog()
-                    .ConfigureServices((_, services) =>
-                        services.AddHostedService<Worker>())
+                    .ConfigureServices((hostCtx, services) =>
+                    {
+                        services.AddSingleton(cfg);
+                        services.AddHostedService<Worker>();
+                    })
                     .Build()
                     .Run();
             }
