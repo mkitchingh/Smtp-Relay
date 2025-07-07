@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using NetTools;
 
@@ -53,15 +54,33 @@ namespace SmtpRelay
 
             if (!AllowAllIPs)
             {
-                foreach (var entry in AllowedIPs)
+                // Flatten any comma-separated entries into individual items
+                var normalized = new List<string>();
+                foreach (var raw in AllowedIPs)
                 {
-                    try { _ = IPAddressRange.Parse(entry); }
+                    var parts = raw
+                        .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(p => p.Trim())
+                        .Where(p => p.Length > 0);
+                    normalized.AddRange(parts);
+                }
+
+                // Validate each piece and then replace the property with the clean list
+                for (int i = 0; i < normalized.Count; i++)
+                {
+                    var entry = normalized[i];
+                    try
+                    {
+                        _ = IPAddressRange.Parse(entry);
+                    }
                     catch (Exception ex)
                     {
                         throw new FormatException(
                             $"Invalid IP or CIDR entry \"{entry}\": {ex.Message}");
                     }
                 }
+
+                AllowedIPs = normalized;
             }
 
             var json = JsonSerializer.Serialize(
