@@ -27,10 +27,11 @@ namespace SmtpRelay
             // Ensure logs directory exists
             Directory.CreateDirectory(LogDir);
 
-            // Protocol transcript file: smtp-proto-YYYYMMDD.log
+            // **Protocol transcript file: same as smtp log now**
+            // (will roll daily as smtp-YYYYMMDD.log)
             var protoPath = Path.Combine(
                 LogDir,
-                $"smtp-proto-{DateTime.Now:yyyyMMdd}.log");
+                $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
             // Attach our filtered logger to the outgoing client
             using var client = new SmtpClient(
