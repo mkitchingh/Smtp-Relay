@@ -1,126 +1,63 @@
 using System;
-using System.Buffers;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Net;
+using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using NetTools;
+using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 using SmtpServer;
-using SmtpServer.ComponentModel;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
+using NetTools;          // ← added to bring IPAddressRange into scope
 
 namespace SmtpRelay
 {
     public class Worker : BackgroundService
     {
-        readonly ILogger<Worker>   _log;
-        readonly Config            _cfg;
-        readonly IPAddressRange[]  _ranges;
+        readonly Config _cfg;
+        readonly MailSender _sender;
+        readonly ILogger _log;
 
-        public Worker(ILogger<Worker> log)
+        public Worker(Config cfg, MailSender sender, ILogger log)
         {
-            _log   = log;
-            _cfg   = Config.Load();
-            _ranges = _cfg.AllowAllIPs
-                ? Array.Empty<IPAddressRange>()
-                : _cfg.AllowedIPs.Select(IPAddressRange.Parse).ToArray();
-
-            _log.LogInformation(_cfg.AllowAllIPs
-                ? "Relay mode: Allow ALL IPs"
-                : $"Relay mode: Allow {_ranges.Length} range(s)");
+            _cfg = cfg;
+            _sender = sender;
+            _log = log;
         }
 
-        protected override Task ExecuteAsync(CancellationToken token)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var options = new SmtpServerOptionsBuilder()
+            var builder = new SmtpServerOptionsBuilder()
                 .ServerName("SMTP Relay")
-                .Port(25)
-                .Build();
+                .Port(_cfg.ListenPort)  // ListenPort must be on Config
+                .MessageStore(new MessageRelayStore(_cfg, _log));
 
-            var provider = new ServiceProvider();
-            provider.Add(new RelayStore(_cfg, _ranges, _log));
-
-            _log.LogInformation("SMTP Relay listening on port 25");
-            return new SmtpServer.SmtpServer(options, provider)
-                .StartAsync(token);
-        }
-
-        /// <summary>
-        /// Enforces the IP allow-list, logs via both “app” and “smtp” loggers,
-        /// and relays mail when permitted.
-        /// </summary>
-        private sealed class RelayStore : MessageStore
-        {
-            readonly Config            _cfg;
-            readonly IPAddressRange[]  _ranges;
-            readonly ILogger           _log;
-
-            public RelayStore(
-                Config cfg,
-                IPAddressRange[] ranges,
-                ILogger log)
+            if (!_cfg.AllowAllIPs)
             {
-                _cfg    = cfg;
-                _ranges = ranges;
-                _log    = log;
+                // parse each CIDR/text entry into an IPAddressRange
+                var ranges = _cfg.AllowedIPs
+                    .Select(IPAddressRange.Parse)
+                    .ToArray();
+
+                builder = builder.AllowedClientAddresses(ranges);
             }
 
-            public override async Task<SmtpResponse> SaveAsync(
-                ISessionContext     context,
-                IMessageTransaction transaction,
-                ReadOnlySequence<byte> buffer,
-                CancellationToken   cancellationToken)
-            {
-                // 1) Extract the *client* IP, skipping server-listeners (0.0.0.0/::)
-                IPAddress? ip = context.Properties.Values
-                    .OfType<IPEndPoint>()
-                    .Where(ep =>
-                        !IPAddress.Any.Equals(ep.Address) &&
-                        !IPAddress.IPv6Any.Equals(ep.Address))
-                    .Select(ep => ep.Address)
-                    .FirstOrDefault();
+            // wire up Serilog for protocol-level events
+            builder = builder
+                .ProtocolLogger(new SerilogProtocolLogger(_log));
 
-                // 2) Log the attempt
-                _log.LogInformation("Incoming relay request from {IP}", ip);
-                SmtpLogger.Logger.Information("Incoming relay request from {IP}", ip);
+            var serviceProvider = new ServiceCollection()
+                .AddSingleton(_cfg)
+                .AddSingleton(_sender)
+                .AddSingleton(_log)
+                .BuildServiceProvider();
 
-                // 3) Enforce allow-list
-                bool allowed = _cfg.AllowAllIPs
-                            || _ranges.Length == 0
-                            || (ip != null && _ranges.Any(r => r.Contains(ip)));
+            var server = new SmtpServer.SmtpServer(builder.Build(), serviceProvider);
 
-                if (!allowed)
-                {
-                    _log.LogWarning("DENIED {IP} — not in allow-list", ip);
-                    SmtpLogger.Logger.Warning("DENIED {IP} — not in allow-list", ip);
-
-                    return new SmtpResponse(
-                        SmtpReplyCode.MailboxUnavailable,
-                        "550 Relaying Denied");
-                }
-
-                // 4) Forward mail
-                try
-                {
-                    await MailSender.SendAsync(
-                        _cfg, buffer, cancellationToken);
-
-                    _log.LogInformation("Relayed mail from {IP}", ip);
-                    SmtpLogger.Logger.Information("Relayed mail from {IP}", ip);
-
-                    return SmtpResponse.Ok;
-                }
-                catch (Exception ex)
-                {
-                    _log.LogError(ex, "Relay failure from {IP}", ip);
-                    SmtpLogger.Logger.Error(ex, "Relay failure from {IP}", ip);
-
-                    return SmtpResponse.TransactionFailed;
-                }
-            }
+            await server.StartAsync(stoppingToken);
         }
     }
 }
