@@ -17,7 +17,7 @@ namespace SmtpRelay
             var logDir = Path.Combine(baseDir, "logs");
             Directory.CreateDirectory(logDir);
 
-            // Serilog: only general app log (rolls daily, 7 days retention)
+            // Serilog: only a single rolling app log
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(
