@@ -29,13 +29,4 @@
     <PackageReference Include="SmtpServer" Version="11.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- core service files -->
-    <Compile Include="Config.cs" />
-    <Compile Include="MailSender.cs" />
-    <Compile Include="MessageRelayStore.cs" />
-    <Compile Include="Program.cs" />
-    <Compile Include="Worker.cs" />
-  </ItemGroup>
-
 </Project>
