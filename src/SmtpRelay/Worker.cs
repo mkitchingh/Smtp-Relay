@@ -9,8 +9,8 @@ namespace SmtpRelay
 {
     public class Worker : BackgroundService
     {
-        private readonly Config _cfg;
-        private readonly ILogger _log;
+        private readonly Config        _cfg;
+        private readonly Serilog.ILogger _log;
         private readonly IMessageStore _store;
 
         public Worker(Config cfg)
@@ -25,7 +25,7 @@ namespace SmtpRelay
             // build SMTP server options (no ProtocolLogger here!)
             var options = new SmtpServerOptionsBuilder()
                 .ServerName("SMTP Relay")
-                .Port(_cfg.ListenPort, allowUnsecure: false)
+                .Port(_cfg.ListenPort)           // ← simplified overload
                 .MessageStore(_store)
                 .Build();
 
