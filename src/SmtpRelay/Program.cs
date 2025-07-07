@@ -6,34 +6,28 @@ using Serilog;
 
 namespace SmtpRelay
 {
-    internal static class Program
+    internal class Program
     {
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            // Shared folders
-            var baseDir = Path.Combine(
+            // configure Serilog *before* building the host
+            var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "SMTP Relay", "service");
-            var logDir = Path.Combine(baseDir, "logs");
-            Directory.CreateDirectory(logDir);
-
-            // Serilog: only a single rolling app log
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .WriteTo.File(
-                    Path.Combine(logDir, "app-.log"),
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 7)
-                .CreateLogger();
+                "SMTP Relay", "service", "logs");
+            Logging.Configure(logDir);
 
             try
             {
-                Log.Information("Starting SMTP Relay Service");
+                Log.Information("Starting SMTP Relay service…");
+
                 Host.CreateDefaultBuilder(args)
-                    .UseWindowsService()
-                    .UseSerilog()
-                    .ConfigureServices((_, services) =>
-                        services.AddHostedService<Worker>())
+                    .UseSerilog()  // hook Serilog in
+                    .ConfigureServices((hostCtx, services) =>
+                    {
+                        services.AddSingleton<Config>();
+                        services.AddSingleton<MailSender>();
+                        services.AddHostedService<Worker>();
+                    })
                     .Build()
                     .Run();
             }
