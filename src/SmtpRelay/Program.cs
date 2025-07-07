@@ -1,42 +1,45 @@
 using System;
+using System.IO;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using Serilog.Events;
 
 namespace SmtpRelay
 {
     internal static class Program
     {
-        public static void Main(string[] args)
+        static void Main(string[] args)
         {
+            // Shared folders
+            var baseDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "SMTP Relay", "service");
+            var logDir = Path.Combine(baseDir, "logs");
+            Directory.CreateDirectory(logDir);
+
+            // Serilog: only a single rolling app log
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Information()
                 .WriteTo.File(
-                    path: "app-.log",
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 7)
-                .WriteTo.File(
-                    path: "smtp-.log",
+                    Path.Combine(logDir, "app-.log"),
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 7)
                 .CreateLogger();
 
             try
             {
-                Log.Information("SMTP Relay starting up");
+                Log.Information("Starting SMTP Relay Service");
                 Host.CreateDefaultBuilder(args)
+                    .UseWindowsService()
                     .UseSerilog()
                     .ConfigureServices((_, services) =>
-                    {
-                        services.AddSingleton<Config>();
-                        services.AddHostedService<Worker>();
-                    })
+                        services.AddHostedService<Worker>())
                     .Build()
                     .Run();
             }
             catch (Exception ex)
             {
-                Log.Fatal(ex, "Unhandled exception");
+                Log.Fatal(ex, "Service terminated unexpectedly");
             }
             finally
             {
