@@ -19,7 +19,7 @@
     <PackageReference Include="System.Text.Json" Version="8.0.0" />
 
     <!-- IP/CIDR parsing -->
-    <PackageReference Include="NetTools" Version="3.0.0.1" />
+    <PackageReference Include="NetTools" Version="1.0.0" />
 
     <!-- SMTP relay and parsing -->
     <PackageReference Include="MailKit" Version="4.1.0" />
