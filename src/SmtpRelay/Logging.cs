@@ -1,1 +1,26 @@
-using Serilog;using System;using System.IO;namespace SmtpRelay{public static class Logging{public static void Configure(Config c){if(!c.EnableLogging)return;var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"SMTP Relay","logs");Directory.CreateDirectory(dir);Log.Logger=new LoggerConfiguration().MinimumLevel.Information().WriteTo.File(Path.Combine(dir,"log-.txt"),rollingInterval:RollingInterval.Day,retainedFileCountLimit:c.RetentionDays).CreateLogger();}}}
+using System;
+using System.IO;
+using Serilog;
+
+namespace SmtpRelay
+{
+    public static class Logging
+    {
+        public static void Configure(string logDirectory)
+        {
+            // ensure the directory exists
+            Directory.CreateDirectory(logDirectory);
+
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .Enrich.FromLogContext()
+                // write everything into one rolling daily file:
+                .WriteTo.File(
+                    path: Path.Combine(logDirectory, $"smtp-{DateTime.Now:yyyyMMdd}.log"),
+                    rollingInterval: RollingInterval.Day,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
+                .CreateLogger();
+        }
+    }
+}
