@@ -40,21 +40,20 @@ namespace SmtpRelay
             }
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ── rebuild MimeMessage from buffer ───────────────────────
+            // ── rebuild MimeMessage ────────────────────────────────────
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            // ── log folder beside service EXE ──────────────────────────
+            // ── logs beside service EXE ────────────────────────────────
             var logDir   = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
             if (!File.Exists(protoPath)) File.WriteAllText(protoPath, string.Empty);
-
             _log.LogInformation("Protocol trace file ready: {Path}", protoPath);
 
-            // ── SMTP client with minimal protocol logger ──────────────
+            // ── SMTP client with minimal logger ───────────────────────
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -83,12 +82,11 @@ namespace SmtpRelay
             return SmtpResponse.Ok;
         }
 
-        // ───── minimal protocol logger (no DATA body) ───────────────────
+        // ───── Minimal protocol logger (hides DATA body) ──────────────
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
             private bool _inData;
-            private IAuthenticationSecretDetector _detector = new AuthenticationSecretDetector();
 
             public MinimalProtocolLogger(string path)
             {
@@ -96,12 +94,9 @@ namespace SmtpRelay
                     path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
             }
 
-            // required by MailKit 4.11+
-            public IAuthenticationSecretDetector AuthenticationSecretDetector
-            {
-                get => _detector;
-                set => _detector = value ?? new AuthenticationSecretDetector();
-            }
+            // MailKit 4.11+ requirement
+            public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; }
+                = new NoSecretDetector();
 
             public void LogConnect(Uri uri) =>
                 _sw.WriteLine($"[{DateTime.Now:HH:mm:ss}] CONNECT {uri}");
@@ -127,9 +122,15 @@ namespace SmtpRelay
             }
 
             public void Dispose() { _sw.Flush(); _sw.Dispose(); }
+
+            // no-op secret detector
+            private sealed class NoSecretDetector : IAuthenticationSecretDetector
+            {
+                public bool IsSecret(string text) => false;
+            }
         }
 
-        // ───── helpers —───────────────────────────────────────────────
+        // ───── Helpers ────────────────────────────────────────────────
         static string TryGetClientIp(ISessionContext ctx)
         {
             const BindingFlags BF = BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
@@ -150,9 +151,4 @@ namespace SmtpRelay
         static string Normalise(string ip)
         {
             if (!IPAddress.TryParse(ip, out var a)) return ip;
-            if (a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any)) return "127.0.0.1";
-            if (IPAddress.IsLoopback(a)) return "127.0.0.1";
-            return ip;
-        }
-    }
-}
+            if (a.E
