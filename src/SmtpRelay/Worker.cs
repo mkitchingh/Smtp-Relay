@@ -4,20 +4,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Serilog;
-using SmtpServer;
+using SmtpServer;                       // SmtpServerOptionsBuilder lives here
 using SmtpServer.ComponentModel;
-using SmtpServer.Options;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
 
 namespace SmtpRelay
 {
     /// <summary>
-    /// Hosts the in-process SMTP server and relays accepted messages to the smart host.
+    /// Hosts an SMTP listener on port 25 and relays accepted mail to the smart host.
     /// </summary>
     public sealed class Worker : BackgroundService
     {
-        private readonly Config _config;
+        private readonly Config  _config;
         private readonly ILogger _log;
 
         public Worker()
@@ -30,7 +29,7 @@ namespace SmtpRelay
         {
             _log.Information("Starting SMTP listener on port 25");
 
-            // ── Protocol (wire-level) log ─────────────────────────────
+            // ── Wire-level SMTP trace (MailKit.ProtocolLogger) ─────────────
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
@@ -38,21 +37,21 @@ namespace SmtpRelay
 
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
-            // ── Configure SmtpServer ──────────────────────────────────
+            // ── Configure SmtpServer library ───────────────────────────────
             var options = new SmtpServerOptionsBuilder()
                 .ServerName("SMTP Relay")
-                .Port(25)                                 // listen on port 25
+                .Port(25)                                     // listen on TCP 25
                 .Build();
 
             var services = new ServiceProvider();
-            services.Add(new MessageRelayStore(_config));
+            services.Add(new MessageRelayStore(_config));     // our custom message store
 
             var server = new SmtpServer.SmtpServer(
                 options,
                 services,
-                new ProtocolLogger(protoPath));           // ← writes smtp-YYYYMMDD.log
+                new ProtocolLogger(protoPath));
 
-            // ── Run until the service is stopped ─────────────────────
+            // ── Run until the Windows service stops ───────────────────────
             await server.StartAsync(stoppingToken);
 
             _log.Information("SMTP listener stopped");
