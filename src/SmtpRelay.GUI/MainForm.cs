@@ -20,7 +20,7 @@ namespace SmtpRelay.GUI
             UpdateServiceStatus();
         }
 
-        /* ───────── config helpers ───────── */
+        /* ───── configuration helpers ───── */
 
         private void LoadConfig()
         {
@@ -55,7 +55,7 @@ namespace SmtpRelay.GUI
             _cfg.Save();
         }
 
-        /* ───────── UI state toggles ───────── */
+        /* ───── UI state toggles ───── */
 
         private void chkStartTls_CheckedChanged(object sender, EventArgs e)
         {
@@ -71,26 +71,24 @@ namespace SmtpRelay.GUI
 
         private void radioAllowRestrictions_CheckedChanged(object sender, EventArgs e)
             => ToggleIpField();
-
         private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
 
         private void chkEnableLogging_CheckedChanged(object sender, EventArgs e)
             => ToggleLoggingFields();
-
         private void ToggleLoggingFields()
         {
             numRetentionDays.Enabled = chkEnableLogging.Checked;
             btnViewLogs.Enabled      = chkEnableLogging.Checked;
         }
 
-        /* ───────── service helpers ───────── */
+        /* ───── service helpers ───── */
 
         private void UpdateServiceStatus()
         {
             try
             {
                 using var sc = new ServiceController(ServiceName);
-                var running = sc.Status == ServiceControllerStatus.Running;
+                bool running = sc.Status == ServiceControllerStatus.Running;
                 labelServiceStatus.Text      = running ? "Running" : "Stopped";
                 labelServiceStatus.ForeColor = running ? Color.Green : Color.Red;
             }
@@ -101,20 +99,7 @@ namespace SmtpRelay.GUI
             }
         }
 
-        /* ───────── buttons ───────── */
-
-        private void btnViewLogs_Click(object sender, EventArgs e)
-        {
-            var logDir = Config.SharedLogDir;
-            if (!Directory.Exists(logDir) || Directory.GetFiles(logDir).Length == 0)
-            {
-                MessageBox.Show("No logs have been created yet.",
-                                "SMTP Relay", MessageBoxButtons.OK,
-                                MessageBoxIcon.Information);
-                return;
-            }
-            Process.Start("explorer.exe", logDir);
-        }
+        /* ───── buttons ───── */
 
         private void btnSave_Click(object sender, EventArgs e)
         {
@@ -125,15 +110,24 @@ namespace SmtpRelay.GUI
                 sc.Stop();  sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
                 sc.Start(); sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
 
-                MessageBox.Show("Settings saved and service restarted.", "Success",
-                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Settings saved and service restarted.",
+                                "SMTP Relay", MessageBoxButtons.OK,
+                                MessageBoxIcon.Information);
                 UpdateServiceStatus();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to restart service: {ex.Message}", "Error",
-                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Failed to restart service: {ex.Message}",
+                                "SMTP Relay", MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
             }
+        }
+
+        private void btnViewLogs_Click(object sender, EventArgs e)
+        {
+            var logDir = Config.SharedLogDir;             // single canonical path
+            Directory.CreateDirectory(logDir);            // ensure it exists
+            Process.Start("explorer.exe", logDir);
         }
 
         private void btnClose_Click(object sender, EventArgs e) => Close();
