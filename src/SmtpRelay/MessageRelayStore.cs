@@ -11,17 +11,17 @@ using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;     // disambiguate
 
 namespace SmtpRelay
 {
     /// <summary>
-    /// Accepts messages from <see cref="SmtpServer"/> and relays them to the
-    /// upstream smart-host defined in <see cref="Config"/>.
+    /// Relays accepted messages from the local listener to the configured
+    /// smart-host, with full protocol tracing.
     /// </summary>
     public sealed class MessageRelayStore : MessageStore
     {
-        private readonly Config _cfg;
+        private readonly Config  _cfg;
         private readonly ILogger _log;
 
         public MessageRelayStore(Config cfg, ILogger logger)
@@ -32,14 +32,16 @@ namespace SmtpRelay
 
         // SmtpServer 9.x signature
         public override async Task<SmtpResponse> SaveAsync(
-            ISessionContext context,
-            IMessageTransaction transaction,
+            ISessionContext       context,
+            IMessageTransaction   transaction,
             ReadOnlySequence<byte> buffer,
-            CancellationToken cancellationToken)
+            CancellationToken     cancellationToken)
         {
-            var clientIp = context.RemoteEndPoint?.Address?.ToString() ?? "unknown";
+            // ── Inbound client IP ────────────────────────────────────────
+            var clientIp =
+                (context as SmtpServer.SessionContext)?.RemoteEndPoint?.Address?.ToString()
+                ?? "unknown";
 
-            // ── IP allow-list check ────────────────────────────────────
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -48,7 +50,7 @@ namespace SmtpRelay
 
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ── reconstruct MimeMessage from buffer ────────────────────
+            // ── Re-hydrate MimeMessage from buffer ───────────────────────
             using var ms = new MemoryStream();
             foreach (var segment in buffer)
                 ms.Write(segment.Span);
@@ -56,15 +58,16 @@ namespace SmtpRelay
 
             var message = MimeMessage.Load(ms);
 
-            // ── wire-level trace file (one per day) ─────────────────────
+            // ── Prepare daily protocol log file ──────────────────────────
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
             Directory.CreateDirectory(logDir);
+
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
-            // ── outbound SMTP client ────────────────────────────────────
-            using var smtp = new SmtpClient(new ProtocolLogger(protoPath));
+            // ── Outbound SMTP client with wire-trace ─────────────────────
+            using var smtp = new SmtpClient(new MailKit.ProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
                 _cfg.SmartHost, _cfg.SmartHostPort, _cfg.UseStartTls);
