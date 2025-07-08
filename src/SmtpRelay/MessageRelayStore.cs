@@ -13,7 +13,7 @@ using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;     // disambiguate
 
 namespace SmtpRelay
 {
@@ -39,23 +39,10 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buffer,
             CancellationToken      cancellationToken)
         {
-            // ── Try to extract the remote IP without binding to internals ──
-            string clientIp = "unknown";
-            try
-            {
-                PropertyInfo? prop =
-                    context.GetType().GetProperty("RemoteEndPoint",
-                        BindingFlags.Public | BindingFlags.Instance);
+            // ── Resolve the remote IP without relying on internal types ──
+            string clientIp = TryGetClientIp(context);
 
-                if (prop?.GetValue(context) is IPEndPoint ep)
-                    clientIp = ep.Address.ToString();
-            }
-            catch
-            {
-                /* swallow – clientIp stays "unknown" */
-            }
-
-            // ── IP allow-list check ──────────────────────────────────────
+            // ── IP allow-list check ─────────────────────────────────────
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -81,7 +68,7 @@ namespace SmtpRelay
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
             // ── Outbound SMTP client with MailKit.ProtocolLogger ─────────
-            using var smtp = new SmtpClient(new MailKit.ProtocolLogger(protoPath));
+            using var smtp = new SmtpClient(new MailKit.ProtocolLogger(protoPath, append: true));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
                 _cfg.SmartHost, _cfg.SmartHostPort, _cfg.UseStartTls);
@@ -109,6 +96,25 @@ namespace SmtpRelay
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
             return SmtpResponse.Ok;
+        }
+
+        /// <summary>
+        /// Attempts to read a public or non-public ‘RemoteEndPoint’ or
+        /// ‘RemoteEndpoint’ property from the concrete context type.
+        /// Falls back to "unknown".
+        /// </summary>
+        private static string TryGetClientIp(ISessionContext context)
+        {
+            const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            foreach (var name in new[] { "RemoteEndPoint", "RemoteEndpoint" })
+            {
+                var prop = context.GetType().GetProperty(name, Flags);
+                if (prop?.GetValue(context) is IPEndPoint ep)
+                    return ep.Address.ToString();
+            }
+
+            return "unknown";
         }
     }
 }
