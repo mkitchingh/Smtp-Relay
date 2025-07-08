@@ -4,12 +4,12 @@ using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NetTools;          // IPAddressRange.Parse
+using NetTools;                  //  from the IPAddressRange package
 
 namespace SmtpRelay
 {
-    /// <summary>Persistent settings for the relay service.</summary>
-    public class Config
+    /// <summary>Settings that the relay service persists on disk.</summary>
+    public sealed class Config
     {
         [JsonPropertyName("smartHost")]
         public string SmartHost { get; set; } = "";
@@ -23,10 +23,13 @@ namespace SmtpRelay
         [JsonPropertyName("password")]
         public string Password { get; set; } = "";
 
+        [JsonPropertyName("useStartTls")]
+        public bool UseStartTls { get; set; } = true;
+
         [JsonPropertyName("allowedIPs")]
         public List<string> AllowedIPs { get; set; } = new();
 
-        /// <summary>True if <paramref name="ip"/> is inside any entry of <see cref="AllowedIPs"/>.</summary>
+        /// <summary>True if <paramref name="ip"/> is inside any CIDR/IP in <see cref="AllowedIPs"/>.</summary>
         public bool IsIPAllowed(string ip)
         {
             foreach (var entry in AllowedIPs)
@@ -40,28 +43,25 @@ namespace SmtpRelay
                 catch (Exception ex)
                 {
                     throw new FormatException(
-                        $"Invalid IP or CIDR entry \"{entry}\": {ex.Message}", ex);
+                        $"Invalid IP/CIDR entry \"{entry}\": {ex.Message}", ex);
                 }
             }
-
             return false;
         }
 
-        public static Config Load(string path)
+        /// <summary>Load config – defaults to *config.json* in the service folder.</summary>
+        public static Config Load(string? path = null)
         {
-            if (!File.Exists(path))
-                return new Config();
-
-            return JsonSerializer.Deserialize<Config>(File.ReadAllText(path))
-                   ?? new Config();
+            path ??= Path.Combine(AppContext.BaseDirectory, "config.json");
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize<Config>(File.ReadAllText(path)) ?? new()
+                : new();
         }
 
-        public void Save(string path)
+        public void Save(string? path = null)
         {
-            var json = JsonSerializer.Serialize(
-                this,
-                new JsonSerializerOptions { WriteIndented = true });
-
+            path ??= Path.Combine(AppContext.BaseDirectory, "config.json");
+            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, json);
         }
