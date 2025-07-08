@@ -8,22 +8,15 @@ namespace SmtpRelay
     {
         public static ILogger Initialise(Config cfg)
         {
-            if (!cfg.EnableLogging)
-                return Log.Logger = new LoggerConfiguration().CreateLogger();
-
-            // Logs beside the service EXE → C:\Program Files\SMTP Relay\service\logs
-            var logDir = Path.Combine(AppContext.BaseDirectory, "logs");
+            var logDir = Path.Combine(AppContext.BaseDirectory, "logs");  // ← only here
             Directory.CreateDirectory(logDir);
 
-            var logger = new LoggerConfiguration()
+            return Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                .WriteTo.File(
-                    Path.Combine(logDir, "app-.log"),       // Serilog adds YYYYMMDD
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: cfg.RetentionDays)
+                .WriteTo.File(Path.Combine(logDir, "app-.log"),
+                              rollingInterval: RollingInterval.Day,
+                              retainedFileCountLimit: cfg.RetentionDays)
                 .CreateLogger();
-
-            return Log.Logger = logger;
         }
     }
 }
