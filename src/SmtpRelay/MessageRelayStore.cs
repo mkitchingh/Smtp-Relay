@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using MailKit.Net.Smtp;
 using MailKit.Security;
+using MailKit;
 using MimeKit;
 using NetTools;
 using SmtpServer;
@@ -18,71 +19,54 @@ using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
+    /// <summary>
+    /// Relays accepted messages to the configured smart-host, logging only
+    /// protocol commands/responses (no DATA contents).
+    /// </summary>
     public sealed class MessageRelayStore : MessageStore
     {
         private readonly Config  _cfg;
         private readonly ILogger _log;
-
-        public MessageRelayStore(Config cfg, ILogger logger)
-        {
-            _cfg = cfg;
-            _log = logger;
-        }
+        public MessageRelayStore(Config cfg, ILogger log) { _cfg = cfg; _log = log; }
 
         public override async Task<SmtpResponse> SaveAsync(
-            ISessionContext        context,
-            IMessageTransaction    transaction,
-            ReadOnlySequence<byte> buffer,
+            ISessionContext        ctx,
+            IMessageTransaction    txn,
+            ReadOnlySequence<byte> buf,
             CancellationToken      cancel)
         {
-            // 1️⃣ Extract & normalise remote IP
-            var clientIp = NormaliseClientIp(TryGetClientIp(context));
+            var clientIp = Normalise(TryGetClientIp(ctx));
 
-            // 2️⃣ Allow-list check
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
                 return SmtpResponse.AuthenticationRequired;
             }
-
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // 3️⃣ Re-hydrate MimeMessage
+            // ── Re-hydrate MimeMessage ─────────────────────────────────
             using var ms = new MemoryStream();
-            foreach (var seg in buffer)
-                ms.Write(seg.Span);
+            foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            // 4️⃣ Prepare protocol log
-            var logDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "SMTP Relay", "logs");
+            // ── Log folder beside service EXE ──────────────────────────
+            var logDir   = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
+            var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            if (!File.Exists(protoPath)) File.WriteAllText(protoPath, string.Empty);
 
-            var protoPath = Path.Combine(
-                logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");   // local date
+            _log.LogInformation("Protocol trace file ready: {Path}", protoPath);
 
-            // **Ensure file exists and note the path**
-            if (!File.Exists(protoPath))
-                File.WriteAllText(protoPath, string.Empty);
-            _log.LogInformation("Protocol trace file: {Path}", protoPath);
-
-            using var protoStream = new FileStream(
-                protoPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-            using var smtpLogger  = new MailKit.ProtocolLogger(protoStream, leaveOpen: false);
-
-            // 5️⃣ Outbound SMTP with trace
-            using var smtp = new SmtpClient(smtpLogger);
+            // ── SMTP client with custom MinimalProtocolLogger ──────────
+            using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
                 _cfg.SmartHost, _cfg.SmartHostPort, _cfg.UseStartTls);
 
             await smtp.ConnectAsync(
-                _cfg.SmartHost,
-                _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
-                                 : SecureSocketOptions.None,
+                _cfg.SmartHost, _cfg.SmartHostPort,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
                 cancel);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -97,45 +81,73 @@ namespace SmtpRelay
             await smtp.SendAsync(message, cancel);
             await smtp.DisconnectAsync(true, cancel);
 
-            // Flush to guarantee bytes on disk
-            protoStream.Flush(true);
-
             _log.LogInformation("Smarthost relay complete");
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
             return SmtpResponse.Ok;
         }
 
-        // ——— Helpers ———————————————————————————————————————————————
-        private static string TryGetClientIp(ISessionContext ctx)
+        // ───── minimal protocol logger (skips DATA block) ─────────────
+        private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
-            const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            foreach (var name in new[] { "RemoteEndPoint", "RemoteEndpoint" })
+            private readonly StreamWriter _sw;
+            private bool _inData;
+
+            public MinimalProtocolLogger(string path)
             {
-                var p = ctx.GetType().GetProperty(name, BF);
-                if (p?.GetValue(ctx) is IPEndPoint ipEp)
-                    return ipEp.Address.ToString();
+                _sw = new StreamWriter(new FileStream(
+                    path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
             }
 
-            var propsProp = ctx.GetType().GetProperty("Properties", BF);
-            if (propsProp?.GetValue(ctx) is IEnumerable bag)
+            public void LogConnect(Uri uri) =>
+                _sw.WriteLine($"[{DateTime.Now:HH:mm:ss}] CONNECT {uri}");
+
+            public void LogClient(byte[] buffer, int offset, int count)
             {
-                foreach (var entry in bag)
+                var line = System.Text.Encoding.ASCII.GetString(buffer, offset, count).TrimEnd();
+                if (_inData)
                 {
-                    if (entry is IPEndPoint ip1) return ip1.Address.ToString();
-                    var valProp = entry.GetType().GetProperty("Value");
-                    if (valProp?.GetValue(entry) is IPEndPoint ip2)
-                        return ip2.Address.ToString();
+                    if (line == ".") { _inData = false; _sw.WriteLine("C: <DATA END>"); }
+                    return;
                 }
+
+                _sw.WriteLine("C: " + line);
+                if (line.StartsWith("DATA", StringComparison.OrdinalIgnoreCase))
+                    _inData = true;
             }
-            return "unknown";
+
+            public void LogServer(byte[] buffer, int offset, int count)
+            {
+                var line = System.Text.Encoding.ASCII.GetString(buffer, offset, count).TrimEnd();
+                _sw.WriteLine("S: " + line);
+            }
+
+            public void Dispose() { _sw.Flush(); _sw.Dispose(); }
         }
 
-        private static string NormaliseClientIp(string ip)
+        // ───── Helpers ────────────────────────────────────────────────
+        static string TryGetClientIp(ISessionContext ctx)
         {
-            if (!IPAddress.TryParse(ip, out var addr)) return ip;
-            if (addr.Equals(IPAddress.Any) || addr.Equals(IPAddress.IPv6Any)) return "127.0.0.1";
-            if (IPAddress.IsLoopback(addr)) return "127.0.0.1";
+            const BindingFlags BF = BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            foreach (var n in new[] { "RemoteEndPoint", "RemoteEndpoint" })
+                if (ctx.GetType().GetProperty(n, BF)?.GetValue(ctx) is IPEndPoint ep)
+                    return ep.Address.ToString();
+
+            var bag = ctx.GetType().GetProperty("Properties", BF)?.GetValue(ctx) as IEnumerable;
+            if (bag != null)
+                foreach (var e in bag)
+                {
+                    if (e is IPEndPoint ep) return ep.Address.ToString();
+                    var v = e.GetType().GetProperty("Value")?.GetValue(e) as IPEndPoint;
+                    if (v != null) return v.Address.ToString();
+                }
+            return "unknown";
+        }
+        static string Normalise(string ip)
+        {
+            if (!IPAddress.TryParse(ip, out var a)) return ip;
+            if (a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any)) return "127.0.0.1";
+            if (IPAddress.IsLoopback(a)) return "127.0.0.1";
             return ip;
         }
     }
