@@ -1,3 +1,10 @@
+/* ──────────────────────────────────────────────────────────────
+ * MessageRelayStore.cs  –  tested for .NET 8 + MailKit 4.11.0
+ * Logs folder: C:\Program Files\SMTP Relay\service\logs\
+ *  - app-YYYYMMDD.log  (Serilog events)
+ *  - smtp-YYYYMMDD.log (protocol commands / replies only)
+ * DATA block suppressed; allow-list respected.
+ * ────────────────────────────────────────────────────────────── */
 using System;
 using System.Buffers;
 using System.Collections;
@@ -40,20 +47,20 @@ namespace SmtpRelay
             }
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ── rebuild MimeMessage ────────────────────────────────────
+            // rebuild MimeMessage
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            // ── logs beside service EXE ────────────────────────────────
+            // logs beside service EXE
             var logDir   = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
             if (!File.Exists(protoPath)) File.WriteAllText(protoPath, string.Empty);
             _log.LogInformation("Protocol trace file ready: {Path}", protoPath);
 
-            // ── SMTP client with minimal logger ───────────────────────
+            // SMTP client with minimal protocol logger
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -61,7 +68,8 @@ namespace SmtpRelay
 
             await smtp.ConnectAsync(
                 _cfg.SmartHost, _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
+                                 : SecureSocketOptions.None,
                 cancel);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -74,86 +82,4 @@ namespace SmtpRelay
                 string.Join(",", message.From), string.Join(",", message.To));
 
             await smtp.SendAsync(message, cancel);
-            await smtp.DisconnectAsync(true, cancel);
-
-            _log.LogInformation("Smarthost relay complete");
-            _log.LogInformation("Relayed mail from {IP}", clientIp);
-
-            return SmtpResponse.Ok;
-        }
-
-        // ───── Minimal protocol logger (hides DATA body) ──────────────
-        private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
-        {
-            private readonly StreamWriter _sw;
-            private bool _inData;
-
-            public MinimalProtocolLogger(string path)
-            {
-                _sw = new StreamWriter(new FileStream(
-                    path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
-            }
-
-            // MailKit 4.11+ requirement
-            public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; }
-                = new NoSecretDetector();
-
-            public void LogConnect(Uri uri) =>
-                _sw.WriteLine($"[{DateTime.Now:HH:mm:ss}] CONNECT {uri}");
-
-            public void LogClient(byte[] buffer, int offset, int count)
-            {
-                var line = System.Text.Encoding.ASCII.GetString(buffer, offset, count).TrimEnd();
-                if (_inData)
-                {
-                    if (line == ".") { _inData = false; _sw.WriteLine("C: <DATA END>"); }
-                    return;
-                }
-
-                _sw.WriteLine("C: " + line);
-                if (line.StartsWith("DATA", StringComparison.OrdinalIgnoreCase))
-                    _inData = true;
-            }
-
-            public void LogServer(byte[] buffer, int offset, int count)
-            {
-                var line = System.Text.Encoding.ASCII.GetString(buffer, offset, count).TrimEnd();
-                _sw.WriteLine("S: " + line);
-            }
-
-            public void Dispose() { _sw.Flush(); _sw.Dispose(); }
-
-            // no-op secret detector
-            private sealed class NoSecretDetector : IAuthenticationSecretDetector
-            {
-                public bool IsSecret(string text) => false;
-            }
-        }
-
-        // ───── Helpers ────────────────────────────────────────────────
-        static string TryGetClientIp(ISessionContext ctx)
-        {
-            const BindingFlags BF = BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
-            foreach (var n in new[] { "RemoteEndPoint", "RemoteEndpoint" })
-                if (ctx.GetType().GetProperty(n, BF)?.GetValue(ctx) is IPEndPoint ep)
-                    return ep.Address.ToString();
-
-            var bag = ctx.GetType().GetProperty("Properties", BF)?.GetValue(ctx) as IEnumerable;
-            if (bag != null)
-                foreach (var e in bag)
-                {
-                    if (e is IPEndPoint ep) return ep.Address.ToString();
-                    var v = e.GetType().GetProperty("Value")?.GetValue(e) as IPEndPoint;
-                    if (v != null) return v.Address.ToString();
-                }
-            return "unknown";
-        }
-        static string Normalise(string ip)
-        {
-            if (!IPAddress.TryParse(ip, out var a)) return ip;
-            if (a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any)) return "127.0.0.1";
-            if (IPAddress.IsLoopback(a)) return "127.0.0.1";
-            return ip;
-        }
-    }
-}
+            await smtp.
