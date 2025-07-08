@@ -1,4 +1,4 @@
-/* MessageRelayStore.cs – .NET 8 + MailKit 4.11 – FINAL */
+/* MessageRelayStore.cs – .NET 8 + MailKit 4.11 – shared log folder */
 using System;
 using System.Buffers;
 using System.Collections;
@@ -42,19 +42,20 @@ namespace SmtpRelay
             }
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // rebuild MimeMessage
+            // ── rebuild MimeMessage ────────────────────────────────────
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            // logs beside service EXE
-            var logDir   = Path.Combine(AppContext.BaseDirectory, "logs");
+            // ── shared log folder  C:\Program Files\SMTP Relay\logs\ ───
+            var logDir   = Config.SharedLogDir;
             Directory.CreateDirectory(logDir);
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
             if (!File.Exists(protoPath)) File.WriteAllText(protoPath, string.Empty);
             _log.LogInformation("Protocol trace file ready: {Path}", protoPath);
 
+            // ── SMTP client with minimal protocol logger ───────────────
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -84,7 +85,7 @@ namespace SmtpRelay
             return SmtpResponse.Ok;
         }
 
-        /* minimal protocol logger (omits DATA body) */
+        /* ───── minimal protocol logger (omits DATA body) ───────────── */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -124,7 +125,6 @@ namespace SmtpRelay
 
             public void Dispose() { _sw.Flush(); _sw.Dispose(); }
 
-            /* no-op detector – returns empty list */
             private sealed class NoSecretDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
@@ -133,10 +133,10 @@ namespace SmtpRelay
             }
         }
 
-        /* helpers */
+        /* ───── helpers ─────────────────────────────────────────────── */
         static string TryGetClientIp(ISessionContext ctx)
         {
-            const BindingFlags BF = BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (var n in new[] { "RemoteEndPoint", "RemoteEndpoint" })
                 if (ctx.GetType().GetProperty(n, BF)?.GetValue(ctx) is IPEndPoint ep)
                     return ep.Address.ToString();
@@ -151,6 +151,7 @@ namespace SmtpRelay
                 }
             return "unknown";
         }
+
         static string Normalise(string ip)
         {
             if (!IPAddress.TryParse(ip, out var a)) return ip;
