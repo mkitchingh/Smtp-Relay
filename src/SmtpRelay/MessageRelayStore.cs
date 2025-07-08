@@ -14,14 +14,10 @@ using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
-    /// <summary>
-    /// Relays accepted messages to the configured smart-host, with full
-    /// SMTP protocol tracing and IP allow-list enforcement.
-    /// </summary>
     public sealed class MessageRelayStore : MessageStore
     {
         private readonly Config  _cfg;
@@ -33,17 +29,16 @@ namespace SmtpRelay
             _log = logger;
         }
 
-        // SmtpServer 9.x signature
         public override async Task<SmtpResponse> SaveAsync(
             ISessionContext        context,
             IMessageTransaction    transaction,
             ReadOnlySequence<byte> buffer,
             CancellationToken      cancel)
         {
-            // 1️⃣  Extract & normalise the remote IP
+            // 1️⃣ Extract & normalise remote IP
             var clientIp = NormaliseClientIp(TryGetClientIp(context));
 
-            // 2️⃣  Allow-list check
+            // 2️⃣ Allow-list check
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -52,29 +47,32 @@ namespace SmtpRelay
 
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // 3️⃣  Re-hydrate MimeMessage from the buffer
+            // 3️⃣ Re-hydrate MimeMessage
             using var ms = new MemoryStream();
             foreach (var seg in buffer)
                 ms.Write(seg.Span);
             ms.Position = 0;
-
             var message = MimeMessage.Load(ms);
 
-            // 4️⃣  Ensure log folder + create smtp-log file immediately
+            // 4️⃣ Prepare protocol log
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
             Directory.CreateDirectory(logDir);
 
             var protoPath = Path.Combine(
-                logDir,
-                $"smtp-{DateTime.Now:yyyyMMdd}.log");    // LOCAL date, matches app log
+                logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");   // local date
+
+            // **Ensure file exists and note the path**
+            if (!File.Exists(protoPath))
+                File.WriteAllText(protoPath, string.Empty);
+            _log.LogInformation("Protocol trace file: {Path}", protoPath);
 
             using var protoStream = new FileStream(
                 protoPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
             using var smtpLogger  = new MailKit.ProtocolLogger(protoStream, leaveOpen: false);
 
-            // 5️⃣  Outbound SMTP client with wire-trace
+            // 5️⃣ Outbound SMTP with trace
             using var smtp = new SmtpClient(smtpLogger);
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -94,11 +92,13 @@ namespace SmtpRelay
             }
 
             _log.LogInformation("Sending message from {From} to {To}",
-                string.Join(",", message.From),
-                string.Join(",", message.To));
+                string.Join(",", message.From), string.Join(",", message.To));
 
             await smtp.SendAsync(message, cancel);
             await smtp.DisconnectAsync(true, cancel);
+
+            // Flush to guarantee bytes on disk
+            protoStream.Flush(true);
 
             _log.LogInformation("Smarthost relay complete");
             _log.LogInformation("Relayed mail from {IP}", clientIp);
@@ -106,14 +106,10 @@ namespace SmtpRelay
             return SmtpResponse.Ok;
         }
 
-        // ——— Helpers ————————————————————————————————————————————————
-
-        /// <summary>Finds a remote IP in public/non-public properties or the session’s property bag.</summary>
+        // ——— Helpers ———————————————————————————————————————————————
         private static string TryGetClientIp(ISessionContext ctx)
         {
             const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-            // a) Look for RemoteEndPoint / RemoteEndpoint property
             foreach (var name in new[] { "RemoteEndPoint", "RemoteEndpoint" })
             {
                 var p = ctx.GetType().GetProperty(name, BF);
@@ -121,7 +117,6 @@ namespace SmtpRelay
                     return ipEp.Address.ToString();
             }
 
-            // b) Fallback: search a Properties bag if present
             var propsProp = ctx.GetType().GetProperty("Properties", BF);
             if (propsProp?.GetValue(ctx) is IEnumerable bag)
             {
@@ -133,14 +128,9 @@ namespace SmtpRelay
                         return ip2.Address.ToString();
                 }
             }
-
             return "unknown";
         }
 
-        /// <summary>
-        /// Converts ::1, 0.0.0.0, IPv6Any, etc. to 127.0.0.1 so loop-back
-        /// clients match the typical Allowed IP list.
-        /// </summary>
         private static string NormaliseClientIp(string ip)
         {
             if (!IPAddress.TryParse(ip, out var addr)) return ip;
