@@ -1,16 +1,17 @@
-/* MessageRelayStore.cs – tested .NET 8 + MailKit 4.11 – July 8 2025 */
+/* MessageRelayStore.cs – .NET 8 + MailKit 4.11 – FINAL */
 using System;
 using System.Buffers;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
-using MailKit;
 using MimeKit;
 using NetTools;
 using SmtpServer;
@@ -41,11 +42,13 @@ namespace SmtpRelay
             }
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
+            // rebuild MimeMessage
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
+            // logs beside service EXE
             var logDir   = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
@@ -59,7 +62,8 @@ namespace SmtpRelay
 
             await smtp.ConnectAsync(
                 _cfg.SmartHost, _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
+                                 : SecureSocketOptions.None,
                 cancel);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -93,8 +97,8 @@ namespace SmtpRelay
             }
 
             /* MailKit 4.11+ requirement */
-            public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; } =
-                new NoSecretDetector();
+            public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; }
+                = new NoSecretDetector();
 
             public void LogConnect(Uri uri) =>
                 _sw.WriteLine($"[{DateTime.Now:HH:mm:ss}] CONNECT {uri}");
@@ -120,10 +124,12 @@ namespace SmtpRelay
 
             public void Dispose() { _sw.Flush(); _sw.Dispose(); }
 
+            /* no-op detector – returns empty list */
             private sealed class NoSecretDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
-                public bool DetectSecrets(byte[] buffer, int offset, int count) => false;
+                public IList<AuthenticationSecret> DetectSecrets(byte[] buffer, int offset, int count)
+                    => Array.Empty<AuthenticationSecret>();
             }
         }
 
