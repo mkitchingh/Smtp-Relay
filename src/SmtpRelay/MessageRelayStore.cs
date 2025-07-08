@@ -19,10 +19,6 @@ using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
-    /// <summary>
-    /// Relays accepted messages to the configured smart-host, logging only
-    /// protocol commands/responses (no DATA contents).
-    /// </summary>
     public sealed class MessageRelayStore : MessageStore
     {
         private readonly Config  _cfg;
@@ -44,13 +40,13 @@ namespace SmtpRelay
             }
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ── Re-hydrate MimeMessage ─────────────────────────────────
+            // ── rebuild MimeMessage from buffer ───────────────────────
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            // ── Log folder beside service EXE ──────────────────────────
+            // ── log folder beside service EXE ──────────────────────────
             var logDir   = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
@@ -58,7 +54,7 @@ namespace SmtpRelay
 
             _log.LogInformation("Protocol trace file ready: {Path}", protoPath);
 
-            // ── SMTP client with custom MinimalProtocolLogger ──────────
+            // ── SMTP client with minimal protocol logger ──────────────
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -87,16 +83,24 @@ namespace SmtpRelay
             return SmtpResponse.Ok;
         }
 
-        // ───── minimal protocol logger (skips DATA block) ─────────────
+        // ───── minimal protocol logger (no DATA body) ───────────────────
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
             private bool _inData;
+            private IAuthenticationSecretDetector _detector = new AuthenticationSecretDetector();
 
             public MinimalProtocolLogger(string path)
             {
                 _sw = new StreamWriter(new FileStream(
                     path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
+            }
+
+            // required by MailKit 4.11+
+            public IAuthenticationSecretDetector AuthenticationSecretDetector
+            {
+                get => _detector;
+                set => _detector = value ?? new AuthenticationSecretDetector();
             }
 
             public void LogConnect(Uri uri) =>
@@ -125,7 +129,7 @@ namespace SmtpRelay
             public void Dispose() { _sw.Flush(); _sw.Dispose(); }
         }
 
-        // ───── Helpers ────────────────────────────────────────────────
+        // ───── helpers —───────────────────────────────────────────────
         static string TryGetClientIp(ISessionContext ctx)
         {
             const BindingFlags BF = BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
