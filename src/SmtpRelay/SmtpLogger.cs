@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using Serilog;
 
@@ -8,7 +7,7 @@ namespace SmtpRelay
     {
         public static ILogger Initialise(Config cfg)
         {
-            var logDir = Path.Combine(AppContext.BaseDirectory, "logs");  // ← only here
+            var logDir = Config.SharedLogDir;          // one place for logs
             Directory.CreateDirectory(logDir);
 
             return Log.Logger = new LoggerConfiguration()
