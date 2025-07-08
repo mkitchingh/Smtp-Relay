@@ -26,10 +26,7 @@ namespace SmtpRelay
         [JsonPropertyName("allowedIPs")]
         public List<string> AllowedIPs { get; set; } = new();
 
-        /// <summary>
-        /// Returns true if <paramref name="ip"/> lies inside any entry of
-        /// <see cref="AllowedIPs"/> (single IP or CIDR).
-        /// </summary>
+        /// <summary>True if <paramref name="ip"/> is inside any entry of <see cref="AllowedIPs"/>.</summary>
         public bool IsIPAllowed(string ip)
         {
             foreach (var entry in AllowedIPs)
@@ -50,8 +47,23 @@ namespace SmtpRelay
             return false;
         }
 
-        /// <summary>Load settings from <paramref name="path"/> (or defaults if missing).</summary>
         public static Config Load(string path)
         {
             if (!File.Exists(path))
                 return new Config();
+
+            return JsonSerializer.Deserialize<Config>(File.ReadAllText(path))
+                   ?? new Config();
+        }
+
+        public void Save(string path)
+        {
+            var json = JsonSerializer.Serialize(
+                this,
+                new JsonSerializerOptions { WriteIndented = true });
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+        }
+    }
+}
