@@ -1,141 +1,78 @@
 using System;
 using System.Diagnostics;
-using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.ServiceProcess;
 using System.Windows.Forms;
 
 namespace SmtpRelay.GUI
 {
     public partial class MainForm : Form
     {
-        // MUST match the actual Windows Service short name
-        private const string ServiceName = "SMTPRelayService";
+        private readonly Config _cfg;
 
         public MainForm()
         {
             InitializeComponent();
-            LoadConfig();
-            UpdateServiceStatus();
+            _cfg = Config.Load();   // same loader the service uses
+            BindToControls();
         }
 
-        private void LoadConfig()
+        /* ───────── helpers ───────── */
+
+        private void BindToControls()
         {
-            var cfg = Config.Load();
-            txtHost.Text             = cfg.SmartHost;
-            numPort.Value            = cfg.SmartHostPort;
-            chkStartTls.Checked      = cfg.UseStartTls;
-            txtUsername.Text         = cfg.Username;
-            txtPassword.Text         = cfg.Password;
-            radioAllowAll.Checked    = cfg.AllowAllIPs;
-            radioAllowList.Checked   = !cfg.AllowAllIPs;
-            txtIpList.Lines          = cfg.AllowedIPs.ToArray();
-            chkEnableLogging.Checked = cfg.EnableLogging;
-            numRetentionDays.Value   = cfg.RetentionDays;
-            ToggleAuthFields();
-            ToggleIpField();
-            ToggleLoggingFields();
+            txtSmartHost.Text     = _cfg.SmartHost;
+            numPort.Value         = _cfg.SmartHostPort;
+            chkStartTls.Checked   = _cfg.UseStartTls;
+            txtUser.Text          = _cfg.Username;
+            txtPass.Text          = _cfg.Password;
+            chkAllowAll.Checked   = _cfg.AllowAllIPs;
+            txtAllowed.Text       = string.Join(", ", _cfg.AllowedIPs);
         }
 
-        private void UpdateServiceStatus()
-        {
-            try
-            {
-                using var sc = new ServiceController(ServiceName);
-                var status = sc.Status;
-                labelServiceStatus.Text      = status == ServiceControllerStatus.Running ? "Running" : "Stopped";
-                labelServiceStatus.ForeColor = status == ServiceControllerStatus.Running ? Color.Green : Color.Red;
-            }
-            catch
-            {
-                labelServiceStatus.Text      = "Unknown";
-                labelServiceStatus.ForeColor = Color.Orange;
-            }
-        }
+        /* ───────── event handlers ───────── */
 
-        private void chkStartTls_CheckedChanged(object sender, EventArgs e)
+        private void btnSave_Click(object sender, EventArgs e)
         {
-            ToggleAuthFields();
-            numPort.Value = chkStartTls.Checked ? 587 : 25;
-        }
+            _cfg.SmartHost     = txtSmartHost.Text;
+            _cfg.SmartHostPort = (int)numPort.Value;
+            _cfg.UseStartTls   = chkStartTls.Checked;
+            _cfg.Username      = txtUser.Text;
+            _cfg.Password      = txtPass.Text;
+            _cfg.AllowAllIPs   = chkAllowAll.Checked;
 
-        private void ToggleAuthFields()
-        {
-            txtUsername.Enabled = chkStartTls.Checked;
-            txtPassword.Enabled = chkStartTls.Checked;
-        }
+            // Split the text box by commas/newlines into the list
+            _cfg.AllowedIPs = txtAllowed.Text
+                .Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .ToList();
 
-        private void radioAllowRestrictions_CheckedChanged(object sender, EventArgs e)
-        {
-            ToggleIpField();
-        }
-
-        private void ToggleIpField()
-        {
-            txtIpList.Enabled = radioAllowList.Checked;
-        }
-
-        private void chkEnableLogging_CheckedChanged(object sender, EventArgs e)
-        {
-            ToggleLoggingFields();
-        }
-
-        private void ToggleLoggingFields()
-        {
-            numRetentionDays.Enabled = chkEnableLogging.Checked;
-            btnViewLogs.Enabled      = chkEnableLogging.Checked;
+            _cfg.Save();
+            MessageBox.Show("Settings saved.", "SMTP Relay",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void btnViewLogs_Click(object sender, EventArgs e)
         {
-            var logDir = Program.GetServiceLogDirectory();
-            if (Directory.Exists(logDir))
-                Process.Start("explorer.exe", logDir);
-            else
-                MessageBox.Show("Log folder not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+            var logDir = Config.SharedLogDir;          // single canonical location
 
-        private void btnSave_Click(object sender, EventArgs e)
-        {
-            var cfg = new Config
+            if (!Directory.Exists(logDir) || Directory.GetFiles(logDir).Length == 0)
             {
-                SmartHost     = txtHost.Text.Trim(),
-                SmartHostPort = (int)numPort.Value,
-                UseStartTls   = chkStartTls.Checked,
-                Username      = txtUsername.Text,
-                Password      = txtPassword.Text,
-                AllowAllIPs   = radioAllowAll.Checked,
-                AllowedIPs    = txtIpList.Lines.ToList(),
-                EnableLogging = chkEnableLogging.Checked,
-                RetentionDays = (int)numRetentionDays.Value
-            };
-            cfg.Save();
-
-            try
-            {
-                using var sc = new ServiceController(ServiceName);
-                sc.Stop();  sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
-                sc.Start(); sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
-                MessageBox.Show("Settings saved and service restarted.", "Success",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                UpdateServiceStatus();
+                MessageBox.Show("No logs have been created yet.",
+                                "SMTP Relay", MessageBoxButtons.OK,
+                                MessageBoxIcon.Information);
+                return;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to restart service: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+
+            Process.Start("explorer.exe", logDir);
         }
 
-        private void btnClose_Click(object sender, EventArgs e)
-        {
-            Close();
-        }
-
+        /* Optional: if your Designer wires these events, keep stubs. */
+        private void chkStartTls_CheckedChanged(object sender, EventArgs e) { }
+        private void chkEnableLogging_CheckedChanged(object sender, EventArgs e) { }
+        private void radioAllowRestrictions_CheckedChanged(object sender, EventArgs e) { }
         private void linkRepo_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
-        {
-            Process.Start(new ProcessStartInfo(linkRepo.Text) { UseShellExecute = true });
-        }
+            => Process.Start(new ProcessStartInfo("https://github.com/your-repo") { UseShellExecute = true });
+        private void btnClose_Click(object sender, EventArgs e) => Close();
     }
 }
