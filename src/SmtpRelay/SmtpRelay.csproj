@@ -8,13 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Bumped to patched versions to silence NU1903 -->
-    <PackageReference Include="MimeKit" Version="4.7.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.2" />
+    <!-- Security-patched library versions -->
+    <PackageReference Include="MimeKit"               Version="4.11.0" />  <!-- patched above GHSA-gmc6-fwg3-75m5 :contentReference[oaicite:0]{index=0} -->
+    <PackageReference Include="MailKit"               Version="4.11.0" />  :contentReference[oaicite:1]{index=1}
+    <PackageReference Include="System.Text.Json"      Version="8.0.5"  />  <!-- patched >8.0.2 :contentReference[oaicite:2]{index=2} -->
 
-    <!-- Existing dependencies (unchanged versions) -->
-    <PackageReference Include="MailKit" Version="4.4.0" />
-    <PackageReference Include="NetTools" Version="1.5.0" />
+    <!-- IP range helper (supplies NetTools.IPAddressRange) -->
+    <PackageReference Include="IPAddressRange"        Version="6.2.0" />  :contentReference[oaicite:3]{index=3}
+
+    <!-- Windows service controller API -->
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
   </ItemGroup>
 
