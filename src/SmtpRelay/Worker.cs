@@ -3,20 +3,21 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;               // ← new
 using Serilog;
-using SmtpServer;                       // SmtpServerOptionsBuilder lives here
+using SmtpServer;                                // SmtpServerOptionsBuilder
 using SmtpServer.ComponentModel;
 using SmtpServer.Storage;
 
 namespace SmtpRelay
 {
     /// <summary>
-    /// Hosts an SMTP listener on port 25 and relays accepted mail to the smart host.
+    /// Hosts an SMTP listener on port&nbsp;25 and relays accepted mail to the smart-host.
     /// </summary>
     public sealed class Worker : BackgroundService
     {
         private readonly Config  _config;
-        private readonly ILogger _log;
+        private readonly ILogger _log;            // Serilog.ILogger (root)
 
         public Worker()
         {
@@ -28,24 +29,29 @@ namespace SmtpRelay
         {
             _log.Information("Starting SMTP listener on port 25");
 
-            // ── Ensure %ProgramData%\SMTP Relay\logs exists ────────────────
+            // ── Ensure %ProgramData%\SMTP Relay\logs exists ───────────────
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
             Directory.CreateDirectory(logDir);
 
-            // ── Configure SmtpServer library ───────────────────────────────
+            // ── Build SmtpServer options ─────────────────────────────────
             var options = new SmtpServerOptionsBuilder()
                 .ServerName("SMTP Relay")
-                .Port(25)                                     // listen on TCP 25
+                .Port(25)
                 .Build();
 
+            // ── Bridge Serilog → Microsoft.Extensions.Logging ───────────
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddSerilog());
+            var msLogger = loggerFactory.CreateLogger<MessageRelayStore>();
+
+            // ── Register our message store ───────────────────────────────
             var services = new ServiceProvider();
-            services.Add(new MessageRelayStore(_config, _log)); // ← pass logger
+            services.Add(new MessageRelayStore(_config, msLogger));
 
             var server = new SmtpServer.SmtpServer(options, services);
 
-            // ── Run until the Windows service stops ───────────────────────
+            // ── Run until the Windows service stops ──────────────────────
             await server.StartAsync(stoppingToken);
 
             _log.Information("SMTP listener stopped");
