@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections;
 using System.IO;
 using System.Net;
 using System.Reflection;
@@ -13,7 +14,7 @@ using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using SmtpResponse = SmtpServer.Protocol.SmtpResponse;     // disambiguate
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
 
 namespace SmtpRelay
 {
@@ -39,10 +40,10 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buffer,
             CancellationToken      cancellationToken)
         {
-            // ── Resolve the remote IP without relying on internal types ──
-            string clientIp = TryGetClientIp(context);
+            // ————————————————— 1.  Resolve client IP  ——————————————————
+            var clientIp = TryGetClientIp(context);
 
-            // ── IP allow-list check ─────────────────────────────────────
+            // ————————————————— 2.  Allow-list check  ———————————————————
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -51,15 +52,15 @@ namespace SmtpRelay
 
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ── Re-hydrate MimeMessage from buffer ───────────────────────
+            // ————————————————— 3.  Re-hydrate MimeMessage —————————————
             using var ms = new MemoryStream();
-            foreach (var segment in buffer)
-                ms.Write(segment.Span);
+            foreach (var seg in buffer)
+                ms.Write(seg.Span);
             ms.Position = 0;
 
             var message = MimeMessage.Load(ms);
 
-            // ── Prepare daily protocol log file ──────────────────────────
+            // ————————————————— 4.  Prepare protocol log ——————————————
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
@@ -67,7 +68,7 @@ namespace SmtpRelay
 
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
-            // ── Outbound SMTP client with MailKit.ProtocolLogger ─────────
+            // ————————————————— 5.  Outbound SMTP w/ trace ————————————
             using var smtp = new SmtpClient(new MailKit.ProtocolLogger(protoPath, append: true));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -87,7 +88,8 @@ namespace SmtpRelay
             }
 
             _log.LogInformation("Sending message from {From} to {To}",
-                string.Join(",", message.From), string.Join(",", message.To));
+                string.Join(",", message.From),
+                string.Join(",", message.To));
 
             await smtp.SendAsync(message, cancellationToken);
             await smtp.DisconnectAsync(true, cancellationToken);
@@ -98,20 +100,34 @@ namespace SmtpRelay
             return SmtpResponse.Ok;
         }
 
-        /// <summary>
-        /// Attempts to read a public or non-public ‘RemoteEndPoint’ or
-        /// ‘RemoteEndpoint’ property from the concrete context type.
-        /// Falls back to "unknown".
-        /// </summary>
-        private static string TryGetClientIp(ISessionContext context)
+        // —— Helper: robustly pull the remote IP from the session context ——
+        private static string TryGetClientIp(ISessionContext ctx)
         {
-            const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
+            // a) Look for a RemoteEndPoint/RemoteEndpoint property
             foreach (var name in new[] { "RemoteEndPoint", "RemoteEndpoint" })
             {
-                var prop = context.GetType().GetProperty(name, Flags);
-                if (prop?.GetValue(context) is IPEndPoint ep)
-                    return ep.Address.ToString();
+                var p = ctx.GetType().GetProperty(name, BF);
+                if (p?.GetValue(ctx) is EndPoint ep &&
+                    ep is IPEndPoint ipEp)
+                    return ipEp.Address.ToString();
+            }
+
+            // b) Fall back to the Properties bag (Dictionary / PropertyBag)
+            var propsProp = ctx.GetType().GetProperty("Properties", BF);
+            if (propsProp?.GetValue(ctx) is IEnumerable bag)
+            {
+                foreach (var entry in bag)
+                {
+                    if (entry is IPEndPoint ipEp)
+                        return ipEp.Address.ToString();
+
+                    // KeyValuePair<string, object> or similar
+                    var valueProp = entry.GetType().GetProperty("Value");
+                    if (valueProp?.GetValue(entry) is IPEndPoint ip2)
+                        return ip2.Address.ToString();
+                }
             }
 
             return "unknown";
