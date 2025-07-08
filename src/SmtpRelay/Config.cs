@@ -5,43 +5,31 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NetTools;                  // from the IPAddressRange package
+using NetTools;
 
 namespace SmtpRelay
 {
-    /// <summary>Settings that the relay service persists on disk.</summary>
     public sealed class Config
     {
-        // ────────────────────────────────────────────────────────────
-        //  SMTP / relay settings
-        // ────────────────────────────────────────────────────────────
-        [JsonPropertyName("smartHost")]
-        public string SmartHost { get; set; } = "";
+        // Where EVERY process (service or GUI) stores the file
+        private static readonly string ConfigDir  =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                         "SMTP Relay");                          // ⇒ %ProgramData%\SMTP Relay
+        private static readonly string ConfigPath =
+            Path.Combine(ConfigDir, "config.json");
 
-        [JsonPropertyName("smartHostPort")]
-        public int SmartHostPort { get; set; } = 25;
+        // ───────── SMTP & credentials ─────────
+        [JsonPropertyName("smartHost")]      public string SmartHost      { get; set; } = "";
+        [JsonPropertyName("smartHostPort")]  public int    SmartHostPort  { get; set; } = 25;
+        [JsonPropertyName("username")]       public string Username       { get; set; } = "";
+        [JsonPropertyName("password")]       public string Password       { get; set; } = "";
+        [JsonPropertyName("useStartTls")]    public bool   UseStartTls    { get; set; } = true;
 
-        [JsonPropertyName("username")]
-        public string Username { get; set; } = "";
+        // ───────── IP allow-list ─────────
+        [JsonPropertyName("allowAllIPs")]    public bool   AllowAllIPs    { get; set; } = false;
+        [JsonPropertyName("allowedIPs")]     public List<string> AllowedIPs { get; set; } = new();
 
-        [JsonPropertyName("password")]
-        public string Password { get; set; } = "";
-
-        [JsonPropertyName("useStartTls")]
-        public bool UseStartTls { get; set; } = true;
-
-        // ────────────────────────────────────────────────────────────
-        //  IP allow-list
-        // ────────────────────────────────────────────────────────────
-        [JsonPropertyName("allowAllIPs")]
-        public bool AllowAllIPs { get; set; } = false;
-
-        [JsonPropertyName("allowedIPs")]
-        public List<string> AllowedIPs { get; set; } = new();
-
-        /// <summary>
-        /// Split on commas / semicolons / whitespace, trim, dedup.
-        /// </summary>
+        // Split “10.0.0.0/8, 192.168.0.0/16” → tokens, trim, dedupe
         private void NormaliseAllowedIPs()
         {
             char[] delims = { ',', ';', ' ', '\t', '\n', '\r' };
@@ -56,15 +44,13 @@ namespace SmtpRelay
 
         public bool IsIPAllowed(string ip)
         {
-            if (AllowAllIPs)
-                return true;
+            if (AllowAllIPs) return true;
 
             foreach (var entry in AllowedIPs)
             {
                 try
                 {
-                    if (IPAddressRange.Parse(entry)
-                                      .Contains(IPAddress.Parse(ip)))
+                    if (IPAddressRange.Parse(entry).Contains(IPAddress.Parse(ip)))
                         return true;
                 }
                 catch (Exception ex)
@@ -76,21 +62,14 @@ namespace SmtpRelay
             return false;
         }
 
-        // ────────────────────────────────────────────────────────────
-        //  Logging options
-        // ────────────────────────────────────────────────────────────
-        [JsonPropertyName("enableLogging")]
-        public bool EnableLogging { get; set; } = true;
+        // ───────── Logging ─────────
+        [JsonPropertyName("enableLogging")]  public bool EnableLogging { get; set; } = true;
+        [JsonPropertyName("retentionDays")]  public int  RetentionDays { get; set; } = 14;
 
-        [JsonPropertyName("retentionDays")]
-        public int RetentionDays { get; set; } = 14;
-
-        // ────────────────────────────────────────────────────────────
-        //  Load / save helpers
-        // ────────────────────────────────────────────────────────────
+        // ───────── Load / save ─────────
         public static Config Load(string? path = null)
         {
-            path ??= Path.Combine(AppContext.BaseDirectory, "config.json");
+            path ??= ConfigPath;
             return File.Exists(path)
                 ? JsonSerializer.Deserialize<Config>(File.ReadAllText(path)) ?? new()
                 : new();
@@ -98,18 +77,14 @@ namespace SmtpRelay
 
         public void Save(string? path = null)
         {
-            NormaliseAllowedIPs();                 // ensure list is tokenised & deduped
-
-            // Validate every entry up front
+            NormaliseAllowedIPs();                    // split + validate list
             foreach (var entry in AllowedIPs)
-                _ = IPAddressRange.Parse(entry);
+                _ = IPAddressRange.Parse(entry);      // throws if bad
 
-            path ??= Path.Combine(AppContext.BaseDirectory, "config.json");
+            path ??= ConfigPath;
+            Directory.CreateDirectory(ConfigDir);
 
-            var json = JsonSerializer.Serialize(
-                this, new JsonSerializerOptions { WriteIndented = true });
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, json);
         }
     }
