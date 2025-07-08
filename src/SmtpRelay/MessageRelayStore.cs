@@ -18,10 +18,6 @@ using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
 
 namespace SmtpRelay
 {
-    /// <summary>
-    /// Relays accepted messages to the configured smart-host, with full
-    /// SMTP protocol tracing and IP allow-list enforcement.
-    /// </summary>
     public sealed class MessageRelayStore : MessageStore
     {
         private readonly Config  _cfg;
@@ -33,17 +29,16 @@ namespace SmtpRelay
             _log = logger;
         }
 
-        // SmtpServer 9.x signature
         public override async Task<SmtpResponse> SaveAsync(
             ISessionContext        context,
             IMessageTransaction    transaction,
             ReadOnlySequence<byte> buffer,
             CancellationToken      cancellationToken)
         {
-            // ————————————————— 1.  Resolve client IP  ——————————————————
-            var clientIp = TryGetClientIp(context);
+            // 1️⃣  Extract & normalise the remote IP
+            var clientIp = NormaliseClientIp(TryGetClientIp(context));
 
-            // ————————————————— 2.  Allow-list check  ———————————————————
+            // 2️⃣  Allow-list enforcement
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -52,15 +47,15 @@ namespace SmtpRelay
 
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ————————————————— 3.  Re-hydrate MimeMessage —————————————
+            // 3️⃣  Re-hydrate MimeMessage from the buffer SmtpServer gives us
             using var ms = new MemoryStream();
-            foreach (var seg in buffer)
-                ms.Write(seg.Span);
+            foreach (var segment in buffer)
+                ms.Write(segment.Span);
             ms.Position = 0;
 
             var message = MimeMessage.Load(ms);
 
-            // ————————————————— 4.  Prepare protocol log ——————————————
+            // 4️⃣  Ensure protocol-log directory exists *before* we open the logger
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
@@ -68,7 +63,7 @@ namespace SmtpRelay
 
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
-            // ————————————————— 5.  Outbound SMTP w/ trace ————————————
+            // 5️⃣  Outbound SMTP client (MailKit) with wire-trace
             using var smtp = new SmtpClient(new MailKit.ProtocolLogger(protoPath, append: true));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -77,8 +72,7 @@ namespace SmtpRelay
             await smtp.ConnectAsync(
                 _cfg.SmartHost,
                 _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
-                                 : SecureSocketOptions.None,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
                 cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -100,37 +94,56 @@ namespace SmtpRelay
             return SmtpResponse.Ok;
         }
 
-        // —— Helper: robustly pull the remote IP from the session context ——
+        // ──────────────────────────────────────────────────────────────────
+        // Helper: pull the IP from the session context with zero build-time
+        // ties to SmtpServer internals.
+        // ──────────────────────────────────────────────────────────────────
         private static string TryGetClientIp(ISessionContext ctx)
         {
             const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            // a) Look for a RemoteEndPoint/RemoteEndpoint property
+            // a) RemoteEndPoint / RemoteEndpoint property
             foreach (var name in new[] { "RemoteEndPoint", "RemoteEndpoint" })
             {
                 var p = ctx.GetType().GetProperty(name, BF);
-                if (p?.GetValue(ctx) is EndPoint ep &&
-                    ep is IPEndPoint ipEp)
+                if (p?.GetValue(ctx) is IPEndPoint ipEp)
                     return ipEp.Address.ToString();
             }
 
-            // b) Fall back to the Properties bag (Dictionary / PropertyBag)
+            // b) Fallback: search the Properties bag
             var propsProp = ctx.GetType().GetProperty("Properties", BF);
             if (propsProp?.GetValue(ctx) is IEnumerable bag)
             {
                 foreach (var entry in bag)
                 {
-                    if (entry is IPEndPoint ipEp)
-                        return ipEp.Address.ToString();
+                    if (entry is IPEndPoint ip1)
+                        return ip1.Address.ToString();
 
-                    // KeyValuePair<string, object> or similar
-                    var valueProp = entry.GetType().GetProperty("Value");
-                    if (valueProp?.GetValue(entry) is IPEndPoint ip2)
+                    var valProp = entry.GetType().GetProperty("Value");
+                    if (valProp?.GetValue(entry) is IPEndPoint ip2)
                         return ip2.Address.ToString();
                 }
             }
 
             return "unknown";
+        }
+
+        /// <summary>
+        /// Converts ::1, 0.0.0.0, IPv6Any, etc. to 127.0.0.1 so that
+        /// loop-back clients match the typical Allowed IP list.
+        /// </summary>
+        private static string NormaliseClientIp(string ip)
+        {
+            if (!IPAddress.TryParse(ip, out var addr))
+                return ip;
+
+            if (addr.Equals(IPAddress.Any) || addr.Equals(IPAddress.IPv6Any))
+                return "127.0.0.1";
+
+            if (IPAddress.IsLoopback(addr))
+                return "127.0.0.1";
+
+            return ip;
         }
     }
 }
