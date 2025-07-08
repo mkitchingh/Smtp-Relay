@@ -4,34 +4,29 @@ using Serilog;
 
 namespace SmtpRelay
 {
-    public static class SmtpLogger
+    internal static class SmtpLogger
     {
-        public static readonly ILogger Logger;
-
-        static SmtpLogger()
+        public static ILogger Initialise(Config cfg)
         {
-            // Mirror the retention setting
-            var cfg = Config.Load();
-            var retention = cfg.RetentionDays;
+            if (!cfg.EnableLogging)
+                return Log.Logger = new LoggerConfiguration().CreateLogger();
 
-            // Ensure logs folder exists
             var logDir = Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.ProgramFiles),
-                "SMTP Relay", "service", "logs");
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "SMTP Relay", "logs");
+
             Directory.CreateDirectory(logDir);
 
-            // SMTP log path
-            var smtpLogPath = Path.Combine(logDir, "smtp-.log");
-
-            // Configure Serilog for SMTP traffic only
-            Logger = new LoggerConfiguration()
+            // ───── Application log (one file per day) ─────
+            var logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(
-                    smtpLogPath,
+                    Path.Combine(logDir, "app-.log"),            // Serilog adds YYYYMMDD
                     rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: retention)
+                    retainedFileCountLimit: cfg.RetentionDays)
                 .CreateLogger();
+
+            return Log.Logger = logger;
         }
     }
 }
