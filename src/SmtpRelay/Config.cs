@@ -1,66 +1,75 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Text.Json;
-using NetTools;
+using System.Text.Json.Serialization;
+using NetTools;   // IPAddressRange.Parse
 
 namespace SmtpRelay
 {
+    /// <summary>
+    /// Persistent settings for the relay service.
+    /// </summary>
     public class Config
     {
-        public string SmartHost     { get; set; } = "";
-        public int    SmartHostPort { get; set; } = 25;
-        public string Username      { get; set; } = "";
-        public string Password      { get; set; } = "";
-        public bool   UseStartTls   { get; set; } = false;
+        [JsonPropertyName("smartHost")]
+        public string SmartHost { get; set; } = "";
 
-        public bool AllowAllIPs       { get; set; } = true;
+        [JsonPropertyName("smartHostPort")]
+        public int SmartHostPort { get; set; } = 25;
+
+        [JsonPropertyName("username")]
+        public string Username { get; set; } = "";
+
+        [JsonPropertyName("password")]
+        public string Password { get; set; } = "";
+
+        [JsonPropertyName("allowedIPs")]
         public List<string> AllowedIPs { get; set; } = new();
 
-        public bool EnableLogging { get; set; } = false;
-        public int  RetentionDays { get; set; } = 30;
-
-        private static string FilePath
+        /// <summary>
+        /// True if the supplied IP (string form) is inside any entry in <see cref="AllowedIPs"/>.
+        /// Entries may be single IPs or CIDR blocks (e.g. "192.168.1.0/24").
+        /// </summary>
+        public bool IsIPAllowed(string ip)
         {
-            get
+            foreach (var entry in AllowedIPs)
             {
-                var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-                var dir     = Path.Combine(baseDir, "SMTP Relay");
-                Directory.CreateDirectory(dir);
-                return Path.Combine(dir, "config.json");
-            }
-        }
-
-        public static Config Load()
-        {
-            var path = FilePath;
-            if (!File.Exists(path)) return new Config();
-            return JsonSerializer.Deserialize<Config>(File.ReadAllText(path)) ?? new Config();
-        }
-
-        public void Save()
-        {
-            if (string.IsNullOrWhiteSpace(SmartHost))
-                throw new FormatException("SMTP Host must not be empty.");
-
-            if (!AllowAllIPs)
-            {
-                foreach (var entry in AllowedIPs)
+                try
                 {
-                    try { _ = IPAddressRange.Parse(entry); }
-                    catch (Exception ex)
-                    {
-                        throw new FormatException($"Invalid IP or CIDR entry "{entry}": {ex.Message}");
-                    }
+                    var range = IPAddressRange.Parse(entry);
+                    if (range.Contains(IPAddress.Parse(ip)))
+                        return true;
+                }
+                catch (Exception ex)
+                {
+                    throw new FormatException(
+                        $"Invalid IP or CIDR entry \"{entry}\": {ex.Message}", ex);
                 }
             }
 
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            try { File.WriteAllText(FilePath, json); }
-            catch (Exception ex)
-            {
-                throw new IOException($"Failed to write config file at {FilePath}: {ex.Message}");
-            }
+            return false;
+        }
+
+        /// <summary>Load settings from disk, or return defaults if the file is missing.</summary>
+        public static Config Load(string path)
+        {
+            if (!File.Exists(path))
+                return new Config();
+
+            return JsonSerializer.Deserialize<Config>(File.ReadAllText(path)) ?? new Config();
+        }
+
+        /// <summary>Persist settings to disk (pretty-printed JSON).</summary>
+        public void Save(string path)
+        {
+            var json = JsonSerializer.Serialize(
+                this,
+                new JsonSerializerOptions { WriteIndented = true });
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
         }
     }
 }
