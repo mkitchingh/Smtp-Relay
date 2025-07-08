@@ -9,41 +9,35 @@ using NetTools;
 
 namespace SmtpRelay
 {
-    /// <summary>Persistent settings for the relay service.</summary>
     public sealed class Config
     {
-        // Location: same folder as the service EXE
-        private static readonly string ConfigPath =
-            Path.Combine(AppContext.BaseDirectory, "config.json");
+        // ───────── shared root:  …\SMTP Relay\  ─────────
+        private static readonly string RootDir =
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+        private static readonly string ConfigPath = Path.Combine(RootDir, "config.json");
 
-        // ───── SMTP / smart-host settings ─────
-        [JsonPropertyName("smartHost")]     public string SmartHost     { get; set; } = "";
+        // SMTP / credentials
+        [JsonPropertyName("smartHost")]     public string SmartHost { get; set; } = "";
         [JsonPropertyName("smartHostPort")] public int    SmartHostPort { get; set; } = 25;
-        [JsonPropertyName("username")]      public string Username      { get; set; } = "";
-        [JsonPropertyName("password")]      public string Password      { get; set; } = "";
-        [JsonPropertyName("useStartTls")]   public bool   UseStartTls   { get; set; } = true;
+        [JsonPropertyName("username")]      public string Username { get; set; } = "";
+        [JsonPropertyName("password")]      public string Password { get; set; } = "";
+        [JsonPropertyName("useStartTls")]   public bool   UseStartTls { get; set; } = true;
 
-        // ───── IP allow-list ─────
+        // IP allow-list
         [JsonPropertyName("allowAllIPs")] public bool          AllowAllIPs { get; set; } = false;
         [JsonPropertyName("allowedIPs")]  public List<string>  AllowedIPs  { get; set; } = new();
 
-        // ───── Logging options ─────
+        // Logging
         [JsonPropertyName("enableLogging")] public bool EnableLogging { get; set; } = true;
         [JsonPropertyName("retentionDays")] public int  RetentionDays { get; set; } = 14;
 
-        // ─────────────────────────────────────────────────────────────
-
-        /// <summary>True if <paramref name="ip"/> is in any range.</summary>
+        // ───────── helpers ─────────
         public bool IsIPAllowed(string ip)
         {
             if (AllowAllIPs) return true;
-            foreach (var entry in AllowedIPs)
-                if (IPAddressRange.Parse(entry).Contains(IPAddress.Parse(ip)))
-                    return true;
-            return false;
+            return AllowedIPs.Any(r => IPAddressRange.Parse(r).Contains(IPAddress.Parse(ip)));
         }
 
-        /// <summary>Load settings (creates defaults if file missing).</summary>
         public static Config Load()
         {
             return File.Exists(ConfigPath)
@@ -51,17 +45,15 @@ namespace SmtpRelay
                 : new();
         }
 
-        /// <summary>Save settings back to <c>config.json</c>.</summary>
         public void Save()
         {
             NormaliseAllowedIPs();
-            foreach (var entry in AllowedIPs) _ = IPAddressRange.Parse(entry); // validate
-
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(ConfigPath, json);
+            foreach (var r in AllowedIPs) _ = IPAddressRange.Parse(r); // validate
+            Directory.CreateDirectory(RootDir);
+            File.WriteAllText(ConfigPath,
+                JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
         }
 
-        // ───── helper: split comma-/newline-separated input ─────
         private void NormaliseAllowedIPs()
         {
             char[] delims = { ',', ';', ' ', '\t', '\n', '\r' };
@@ -71,5 +63,8 @@ namespace SmtpRelay
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
+
+        // Expose shared log dir to other classes
+        public static string SharedLogDir => Path.Combine(RootDir, "logs");
     }
 }
