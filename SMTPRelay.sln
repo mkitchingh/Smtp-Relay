@@ -1,0 +1,16 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmtpRelay", "src\SmtpRelay\SmtpRelay.csproj", "{b64ca5ec-50e3-45ce-9561-69a6a79808fa}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmtpRelay.GUI", "src\SmtpRelay.GUI\SmtpRelay.GUI.csproj", "{5f0a0fca-e2d4-4f1d-95be-28fbda445dc1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "tests\Tests.csproj", "{5a043f59-1a67-4593-897b-4c9153a80de0}"
+EndProject
+Global
+    GlobalSection(SolutionConfigurationPlatforms) = preSolution
+        Debug|Any CPU = Debug|Any CPU
+        Release|Any CPU = Release|Any CPU
+    EndGlobalSection
+    GlobalSection(ProjectConfigurationPlatforms) = postSolution
+    EndGlobalSection
+EndGlobal
