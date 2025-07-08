@@ -1,4 +1,3 @@
-using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -16,10 +15,10 @@ namespace SmtpRelay
 
             Host.CreateDefaultBuilder(args)
                 .UseWindowsService()
-                .UseSerilog()
-                .ConfigureServices((hostContext, services) =>
+                .UseSerilog()                               // Serilog.Extensions.Hosting
+                .ConfigureServices(services =>
                 {
-                    services.AddHostedService<Worker>();
+                    services.AddHostedService<Worker>();    // our BackgroundService
                 })
                 .Build()
                 .Run();
