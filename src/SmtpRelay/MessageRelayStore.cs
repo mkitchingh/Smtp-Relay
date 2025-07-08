@@ -151,4 +151,9 @@ namespace SmtpRelay
         static string Normalise(string ip)
         {
             if (!IPAddress.TryParse(ip, out var a)) return ip;
-            if (a.E
+            if (a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any)) return "127.0.0.1";
+            if (IPAddress.IsLoopback(a)) return "127.0.0.1";
+            return ip;
+        }
+    }
+}
