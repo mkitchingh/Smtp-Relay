@@ -5,13 +5,16 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NetTools;                  //  from the IPAddressRange package
+using NetTools;                  // from the IPAddressRange package
 
 namespace SmtpRelay
 {
     /// <summary>Settings that the relay service persists on disk.</summary>
     public sealed class Config
     {
+        // ────────────────────────────────────────────────────────────
+        //  SMTP / relay settings
+        // ────────────────────────────────────────────────────────────
         [JsonPropertyName("smartHost")]
         public string SmartHost { get; set; } = "";
 
@@ -27,14 +30,17 @@ namespace SmtpRelay
         [JsonPropertyName("useStartTls")]
         public bool UseStartTls { get; set; } = true;
 
+        // ────────────────────────────────────────────────────────────
+        //  IP allow-list
+        // ────────────────────────────────────────────────────────────
+        [JsonPropertyName("allowAllIPs")]
+        public bool AllowAllIPs { get; set; } = false;
+
         [JsonPropertyName("allowedIPs")]
         public List<string> AllowedIPs { get; set; } = new();
 
         /// <summary>
-        /// Normalises <see cref="AllowedIPs"/>:
-        ///  • splits on commas, semicolons, whitespace, or new-lines  
-        ///  • trims each token  
-        ///  • removes blanks & duplicates
+        /// Split on commas / semicolons / whitespace, trim, dedup.
         /// </summary>
         private void NormaliseAllowedIPs()
         {
@@ -48,10 +54,11 @@ namespace SmtpRelay
                 .ToList();
         }
 
-        /// <summary>True if <paramref name="ip"/> lies in any CIDR/IP entry.</summary>
         public bool IsIPAllowed(string ip)
         {
-            // No normalisation here—Save() guarantees the list is clean.
+            if (AllowAllIPs)
+                return true;
+
             foreach (var entry in AllowedIPs)
             {
                 try
@@ -69,7 +76,18 @@ namespace SmtpRelay
             return false;
         }
 
-        /// <summary>Load config – defaults to *config.json* beside the EXE.</summary>
+        // ────────────────────────────────────────────────────────────
+        //  Logging options
+        // ────────────────────────────────────────────────────────────
+        [JsonPropertyName("enableLogging")]
+        public bool EnableLogging { get; set; } = true;
+
+        [JsonPropertyName("retentionDays")]
+        public int RetentionDays { get; set; } = 14;
+
+        // ────────────────────────────────────────────────────────────
+        //  Load / save helpers
+        // ────────────────────────────────────────────────────────────
         public static Config Load(string? path = null)
         {
             path ??= Path.Combine(AppContext.BaseDirectory, "config.json");
@@ -78,19 +96,13 @@ namespace SmtpRelay
                 : new();
         }
 
-        /// <summary>
-        /// Saves settings to disk after normalising and validating <see cref="AllowedIPs"/>.
-        /// Throws <see cref="FormatException"/> if any entry is malformed.
-        /// </summary>
         public void Save(string? path = null)
         {
-            NormaliseAllowedIPs();                 // 💡 new line
+            NormaliseAllowedIPs();                 // ensure list is tokenised & deduped
 
-            // Validate every entry before we hit the disk.
+            // Validate every entry up front
             foreach (var entry in AllowedIPs)
-            {
-                _ = IPAddressRange.Parse(entry);   // will throw if bad
-            }
+                _ = IPAddressRange.Parse(entry);
 
             path ??= Path.Combine(AppContext.BaseDirectory, "config.json");
 
