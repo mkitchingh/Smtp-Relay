@@ -4,13 +4,11 @@ using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NetTools;   // IPAddressRange.Parse
+using NetTools;          // IPAddressRange.Parse
 
 namespace SmtpRelay
 {
-    /// <summary>
-    /// Persistent settings for the relay service.
-    /// </summary>
+    /// <summary>Persistent settings for the relay service.</summary>
     public class Config
     {
         [JsonPropertyName("smartHost")]
@@ -29,8 +27,8 @@ namespace SmtpRelay
         public List<string> AllowedIPs { get; set; } = new();
 
         /// <summary>
-        /// True if the supplied IP (string form) is inside any entry in <see cref="AllowedIPs"/>.
-        /// Entries may be single IPs or CIDR blocks (e.g. "192.168.1.0/24").
+        /// Returns true if <paramref name="ip"/> lies inside any entry of
+        /// <see cref="AllowedIPs"/> (single IP or CIDR).
         /// </summary>
         public bool IsIPAllowed(string ip)
         {
@@ -52,24 +50,8 @@ namespace SmtpRelay
             return false;
         }
 
-        /// <summary>Load settings from disk, or return defaults if the file is missing.</summary>
+        /// <summary>Load settings from <paramref name="path"/> (or defaults if missing).</summary>
         public static Config Load(string path)
         {
             if (!File.Exists(path))
                 return new Config();
-
-            return JsonSerializer.Deserialize<Config>(File.ReadAllText(path)) ?? new Config();
-        }
-
-        /// <summary>Persist settings to disk (pretty-printed JSON).</summary>
-        public void Save(string path)
-        {
-            var json = JsonSerializer.Serialize(
-                this,
-                new JsonSerializerOptions { WriteIndented = true });
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, json);
-        }
-    }
-}
