@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -6,10 +7,11 @@ using Microsoft.Extensions.Logging;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
-using NetTools;                     // IPAddressRange.Parse
+using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
 
 namespace SmtpRelay
 {
@@ -22,20 +24,22 @@ namespace SmtpRelay
         private readonly Config _cfg;
         private readonly ILogger _log;
 
-        public MessageRelayStore(Config cfg, ILogger log)
+        public MessageRelayStore(Config cfg, ILogger logger)
         {
             _cfg = cfg;
-            _log = log;
+            _log = logger;
         }
 
+        // SmtpServer 9.x signature
         public override async Task<SmtpResponse> SaveAsync(
             ISessionContext context,
             IMessageTransaction transaction,
+            ReadOnlySequence<byte> buffer,
             CancellationToken cancellationToken)
         {
-            // ── inbound client IP - access control ───────────────────────
             var clientIp = context.RemoteEndPoint?.Address?.ToString() ?? "unknown";
 
+            // ── IP allow-list check ────────────────────────────────────
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -44,15 +48,22 @@ namespace SmtpRelay
 
             _log.LogInformation("Incoming relay request from {IP}", clientIp);
 
-            // ── prepare outbound SMTP client ─────────────────────────────
+            // ── reconstruct MimeMessage from buffer ────────────────────
+            using var ms = new MemoryStream();
+            foreach (var segment in buffer)
+                ms.Write(segment.Span);
+            ms.Position = 0;
+
+            var message = MimeMessage.Load(ms);
+
+            // ── wire-level trace file (one per day) ─────────────────────
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
             Directory.CreateDirectory(logDir);
+            var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
-            var protoPath = Path.Combine(logDir,
-                $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
-
+            // ── outbound SMTP client ────────────────────────────────────
             using var smtp = new SmtpClient(new ProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
@@ -65,19 +76,14 @@ namespace SmtpRelay
                                  : SecureSocketOptions.None,
                 cancellationToken);
 
-            // ── authenticate if creds supplied ───────────────────────────
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
             {
                 _log.LogInformation("Authenticating as {User}", _cfg.Username);
                 await smtp.AuthenticateAsync(_cfg.Username, _cfg.Password, cancellationToken);
             }
 
-            // ── send the message ─────────────────────────────────────────
-            var message = (MimeMessage)transaction.Message;
-
             _log.LogInformation("Sending message from {From} to {To}",
-                string.Join(",", message.From),
-                string.Join(",", message.To));
+                string.Join(",", message.From), string.Join(",", message.To));
 
             await smtp.SendAsync(message, cancellationToken);
             await smtp.DisconnectAsync(true, cancellationToken);
