@@ -1,6 +1,8 @@
 using System;
 using System.Buffers;
 using System.IO;
+using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -11,13 +13,13 @@ using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using SmtpResponse = SmtpServer.Protocol.SmtpResponse;     // disambiguate
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;   // disambiguate
 
 namespace SmtpRelay
 {
     /// <summary>
-    /// Relays accepted messages from the local listener to the configured
-    /// smart-host, with full protocol tracing.
+    /// Relays accepted messages to the configured smart-host, with full
+    /// SMTP protocol tracing and IP allow-list enforcement.
     /// </summary>
     public sealed class MessageRelayStore : MessageStore
     {
@@ -32,16 +34,28 @@ namespace SmtpRelay
 
         // SmtpServer 9.x signature
         public override async Task<SmtpResponse> SaveAsync(
-            ISessionContext       context,
-            IMessageTransaction   transaction,
+            ISessionContext        context,
+            IMessageTransaction    transaction,
             ReadOnlySequence<byte> buffer,
-            CancellationToken     cancellationToken)
+            CancellationToken      cancellationToken)
         {
-            // ── Inbound client IP ────────────────────────────────────────
-            var clientIp =
-                (context as SmtpServer.SessionContext)?.RemoteEndPoint?.Address?.ToString()
-                ?? "unknown";
+            // ── Try to extract the remote IP without binding to internals ──
+            string clientIp = "unknown";
+            try
+            {
+                PropertyInfo? prop =
+                    context.GetType().GetProperty("RemoteEndPoint",
+                        BindingFlags.Public | BindingFlags.Instance);
 
+                if (prop?.GetValue(context) is IPEndPoint ep)
+                    clientIp = ep.Address.ToString();
+            }
+            catch
+            {
+                /* swallow – clientIp stays "unknown" */
+            }
+
+            // ── IP allow-list check ──────────────────────────────────────
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -66,7 +80,7 @@ namespace SmtpRelay
 
             var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
-            // ── Outbound SMTP client with wire-trace ─────────────────────
+            // ── Outbound SMTP client with MailKit.ProtocolLogger ─────────
             using var smtp = new SmtpClient(new MailKit.ProtocolLogger(protoPath));
 
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
