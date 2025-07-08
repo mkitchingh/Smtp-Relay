@@ -6,7 +6,6 @@ using Microsoft.Extensions.Hosting;
 using Serilog;
 using SmtpServer;                       // SmtpServerOptionsBuilder lives here
 using SmtpServer.ComponentModel;
-using SmtpServer.Protocol;
 using SmtpServer.Storage;
 
 namespace SmtpRelay
@@ -29,13 +28,11 @@ namespace SmtpRelay
         {
             _log.Information("Starting SMTP listener on port 25");
 
-            // ── Wire-level SMTP trace (MailKit.ProtocolLogger) ─────────────
+            // ── Ensure %ProgramData%\SMTP Relay\logs exists ────────────────
             var logDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "SMTP Relay", "logs");
             Directory.CreateDirectory(logDir);
-
-            var protoPath = Path.Combine(logDir, $"smtp-{DateTime.UtcNow:yyyyMMdd}.log");
 
             // ── Configure SmtpServer library ───────────────────────────────
             var options = new SmtpServerOptionsBuilder()
@@ -44,12 +41,9 @@ namespace SmtpRelay
                 .Build();
 
             var services = new ServiceProvider();
-            services.Add(new MessageRelayStore(_config));     // our custom message store
+            services.Add(new MessageRelayStore(_config, _log)); // ← pass logger
 
-            var server = new SmtpServer.SmtpServer(
-                options,
-                services,
-                new ProtocolLogger(protoPath));
+            var server = new SmtpServer.SmtpServer(options, services);
 
             // ── Run until the Windows service stops ───────────────────────
             await server.StartAsync(stoppingToken);
