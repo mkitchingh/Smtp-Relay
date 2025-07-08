@@ -13,7 +13,7 @@ namespace SmtpRelay.GUI
         public MainForm()
         {
             InitializeComponent();
-            _cfg = Config.Load();   // same loader the service uses
+            _cfg = Config.Load();          // service & GUI share same file
             BindToControls();
         }
 
@@ -21,13 +21,13 @@ namespace SmtpRelay.GUI
 
         private void BindToControls()
         {
-            txtSmartHost.Text     = _cfg.SmartHost;
-            numPort.Value         = _cfg.SmartHostPort;
-            chkStartTls.Checked   = _cfg.UseStartTls;
-            txtUser.Text          = _cfg.Username;
-            txtPass.Text          = _cfg.Password;
-            chkAllowAll.Checked   = _cfg.AllowAllIPs;
-            txtAllowed.Text       = string.Join(", ", _cfg.AllowedIPs);
+            txtSmartHost.Text   = _cfg.SmartHost;
+            numPort.Value       = _cfg.SmartHostPort;
+            chkStartTls.Checked = _cfg.UseStartTls;
+            txtUser.Text        = _cfg.Username;
+            txtPass.Text        = _cfg.Password;
+            chkAllowAll.Checked = _cfg.AllowAllIPs;
+            txtAllowed.Text     = string.Join(", ", _cfg.AllowedIPs);
         }
 
         /* ───────── event handlers ───────── */
@@ -41,7 +41,6 @@ namespace SmtpRelay.GUI
             _cfg.Password      = txtPass.Text;
             _cfg.AllowAllIPs   = chkAllowAll.Checked;
 
-            // Split the text box by commas/newlines into the list
             _cfg.AllowedIPs = txtAllowed.Text
                 .Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
@@ -54,7 +53,7 @@ namespace SmtpRelay.GUI
 
         private void btnViewLogs_Click(object sender, EventArgs e)
         {
-            var logDir = Config.SharedLogDir;          // single canonical location
+            var logDir = Config.SharedLogDir;   // single canonical location
 
             if (!Directory.Exists(logDir) || Directory.GetFiles(logDir).Length == 0)
             {
@@ -67,7 +66,7 @@ namespace SmtpRelay.GUI
             Process.Start("explorer.exe", logDir);
         }
 
-        /* Optional: if your Designer wires these events, keep stubs. */
+        /* stubs wired by the Designer (unchanged) */
         private void chkStartTls_CheckedChanged(object sender, EventArgs e) { }
         private void chkEnableLogging_CheckedChanged(object sender, EventArgs e) { }
         private void radioAllowRestrictions_CheckedChanged(object sender, EventArgs e) { }
