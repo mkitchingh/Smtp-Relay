@@ -11,17 +11,14 @@ namespace SmtpRelay
             if (!cfg.EnableLogging)
                 return Log.Logger = new LoggerConfiguration().CreateLogger();
 
-            var logDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "SMTP Relay", "logs");
-
+            // Logs beside the service EXE → C:\Program Files\SMTP Relay\service\logs
+            var logDir = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
 
-            // ───── Application log (one file per day) ─────
             var logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(
-                    Path.Combine(logDir, "app-.log"),            // Serilog adds YYYYMMDD
+                    Path.Combine(logDir, "app-.log"),       // Serilog adds YYYYMMDD
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: cfg.RetentionDays)
                 .CreateLogger();
