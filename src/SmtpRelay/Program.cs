@@ -8,7 +8,7 @@ namespace SmtpRelay
     {
         public static void Main(string[] args)
         {
-            // Load config once, initialise Serilog to the shared log folder
+            // Load config once and initialise Serilog (shared log folder)
             var cfg = Config.Load();
             SmtpLogger.Initialise(cfg);
 
@@ -17,12 +17,11 @@ namespace SmtpRelay
                 Log.Information("Starting SMTP Relay Service");
 
                 Host.CreateDefaultBuilder(args)
-                    .UseWindowsService()                    // runs as NT service or console fallback
-                    .ConfigureLogging(lb => lb.ClearProviders()) // Serilog only
-                    .UseSerilog()
+                    .UseWindowsService()           // runs as NT service or console
+                    .UseSerilog()                  // replaces default logging
                     .ConfigureServices(services =>
                     {
-                        services.AddSingleton(cfg);
+                        services.AddSingleton(cfg); // shared instance
                         services.AddHostedService<Worker>();
                     })
                     .Build()
