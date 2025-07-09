@@ -20,19 +20,23 @@ namespace SmtpRelay.GUI
             UpdateServiceStatus();
         }
 
-        /* ───── configuration helpers ───── */
-
+        /* ─────────────────────────────────────────────────────────── */
+        /*  CONFIG LOAD / SAVE                                        */
+        /* ─────────────────────────────────────────────────────────── */
         private void LoadConfig()
         {
             _cfg = Config.Load();
+
             txtHost.Text           = _cfg.SmartHost;
             numPort.Value          = _cfg.SmartHostPort;
             chkStartTls.Checked    = _cfg.UseStartTls;
             txtUsername.Text       = _cfg.Username;
             txtPassword.Text       = _cfg.Password;
+
             radioAllowAll.Checked  = _cfg.AllowAllIPs;
             radioAllowList.Checked = !_cfg.AllowAllIPs;
             txtIpList.Lines        = _cfg.AllowedIPs.ToArray();
+
             chkEnableLogging.Checked = _cfg.EnableLogging;
             numRetentionDays.Value   = _cfg.RetentionDays;
 
@@ -48,21 +52,33 @@ namespace SmtpRelay.GUI
             _cfg.UseStartTls   = chkStartTls.Checked;
             _cfg.Username      = txtUsername.Text;
             _cfg.Password      = txtPassword.Text;
-            _cfg.AllowAllIPs   = radioAllowAll.Checked;
-            _cfg.AllowedIPs    = txtIpList.Lines.ToList();
+
+            _cfg.AllowAllIPs = radioAllowAll.Checked;
+            _cfg.AllowedIPs  = txtIpList.Lines
+                               .Select(s => s.Trim())
+                               .Where(s => s.Length > 0)
+                               .ToList();
+
             _cfg.EnableLogging = chkEnableLogging.Checked;
             _cfg.RetentionDays = (int)numRetentionDays.Value;
+
             _cfg.Save();
         }
 
-        /* ───── UI state toggles ───── */
-
+        /* ─────────────────────────────────────────────────────────── */
+        /*  UI STATE TOGGLES                                          */
+        /* ─────────────────────────────────────────────────────────── */
         private void chkStartTls_CheckedChanged(object sender, EventArgs e)
         {
             ToggleAuthFields();
-            if (!txtUsername.Enabled) { txtUsername.Clear(); txtPassword.Clear(); }
+            if (!txtUsername.Enabled)
+            {
+                txtUsername.Clear();
+                txtPassword.Clear();
+            }
             numPort.Value = chkStartTls.Checked ? 587 : 25;
         }
+
         private void ToggleAuthFields()
         {
             txtUsername.Enabled = chkStartTls.Checked;
@@ -71,24 +87,28 @@ namespace SmtpRelay.GUI
 
         private void radioAllowRestrictions_CheckedChanged(object sender, EventArgs e)
             => ToggleIpField();
-        private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
+
+        private void ToggleIpField()
+            => txtIpList.Enabled = radioAllowList.Checked;
 
         private void chkEnableLogging_CheckedChanged(object sender, EventArgs e)
             => ToggleLoggingFields();
+
         private void ToggleLoggingFields()
         {
             numRetentionDays.Enabled = chkEnableLogging.Checked;
             btnViewLogs.Enabled      = chkEnableLogging.Checked;
         }
 
-        /* ───── service helpers ───── */
-
+        /* ─────────────────────────────────────────────────────────── */
+        /*  SERVICE STATUS HELPERS                                    */
+        /* ─────────────────────────────────────────────────────────── */
         private void UpdateServiceStatus()
         {
             try
             {
                 using var sc = new ServiceController(ServiceName);
-                bool running = sc.Status == ServiceControllerStatus.Running;
+                var running = sc.Status == ServiceControllerStatus.Running;
                 labelServiceStatus.Text      = running ? "Running" : "Stopped";
                 labelServiceStatus.ForeColor = running ? Color.Green : Color.Red;
             }
@@ -99,34 +119,42 @@ namespace SmtpRelay.GUI
             }
         }
 
-        /* ───── buttons ───── */
+        /* ─────────────────────────────────────────────────────────── */
+        /*  BUTTON HANDLERS                                           */
+        /* ─────────────────────────────────────────────────────────── */
 
         private void btnSave_Click(object sender, EventArgs e)
         {
             SaveConfig();
+
             try
             {
                 using var sc = new ServiceController(ServiceName);
-                sc.Stop();  sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
-                sc.Start(); sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+                sc.Stop();
+                sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
+
+                sc.Start();
+                sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
 
                 MessageBox.Show("Settings saved and service restarted.",
-                                "SMTP Relay", MessageBoxButtons.OK,
+                                "SMTP Relay",
+                                MessageBoxButtons.OK,
                                 MessageBoxIcon.Information);
                 UpdateServiceStatus();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to restart service: {ex.Message}",
-                                "SMTP Relay", MessageBoxButtons.OK,
+                MessageBox.Show($"Unable to restart service:\n{ex.Message}",
+                                "SMTP Relay",
+                                MessageBoxButtons.OK,
                                 MessageBoxIcon.Error);
             }
         }
 
         private void btnViewLogs_Click(object sender, EventArgs e)
         {
-            var logDir = Config.SharedLogDir;             // single canonical path
-            Directory.CreateDirectory(logDir);            // ensure it exists
+            var logDir = Config.SharedLogDir;
+            Directory.CreateDirectory(logDir);                 // ensure folder exists
             Process.Start("explorer.exe", logDir);
         }
 
@@ -134,5 +162,19 @@ namespace SmtpRelay.GUI
 
         private void linkRepo_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
             => Process.Start(new ProcessStartInfo(linkRepo.Text) { UseShellExecute = true });
+
+        /* ─────────────────────────────────────────────────────────── */
+        /*  SINGLE-INSTANCE WINDOW ACTIVATION                         */
+        /* ─────────────────────────────────────────────────────────── */
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == Program.NativeMethods.WM_SHOWME)
+            {
+                if (WindowState == FormWindowState.Minimized)
+                    WindowState = FormWindowState.Normal;
+                Activate();
+            }
+            base.WndProc(ref m);
+        }
     }
 }
