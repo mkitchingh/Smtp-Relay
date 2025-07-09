@@ -1,28 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <!-- ───── global settings ───── -->
   <PropertyGroup>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <OutputType>WinExe</OutputType>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PublishSingleFile>true</PublishSingleFile>
-    <PublishTrimmed>false</PublishTrimmed>
-    <!-- your blue envelope -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- app + file version shown in GUI -->
+    <AssemblyVersion>1.4.0.0</AssemblyVersion>
+    <FileVersion>1.4.0.0</FileVersion>
+
+    <!-- optional: show icon in Windows Explorer / taskbar -->
     <ApplicationIcon>smtp.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- ───── copy smtp.ico into build / publish folder ───── -->
   <ItemGroup>
-    <!-- core service & config library -->
+    <!-- adjust path if your icon lives elsewhere -->
+    <None Include="..\..\smtp.ico" Link="smtp.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- ───── reference the core service project ───── -->
+  <ItemGroup>
     <ProjectReference Include="..\SmtpRelay\SmtpRelay.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- for ServiceController support -->
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- embed your icon (don’t add a Win32Resource entry) -->
-    <None Include="smtp.ico" CopyToOutputDirectory="Never" />
-  </ItemGroup>
 </Project>
