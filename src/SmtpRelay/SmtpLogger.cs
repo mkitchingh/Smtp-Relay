@@ -7,9 +7,10 @@ namespace SmtpRelay
     {
         public static ILogger Initialise(Config cfg)
         {
-            // One canonical folder for BOTH app and SMTP logs
-            var logDir = Config.SharedLogDir;            // ← no AppContext.BaseDirectory
+            var logDir = Config.SharedLogDir;     // one canonical folder
             Directory.CreateDirectory(logDir);
+
+            Log.CloseAndFlush();  // reset if already configured
 
             return Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
