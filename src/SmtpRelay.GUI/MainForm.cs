@@ -12,19 +12,33 @@ namespace SmtpRelay.GUI
     public partial class MainForm : Form
     {
         private const string ServiceName = "SMTPRelayService";
-        private readonly Timer _statusTimer = new() { Interval = 5000 }; // 5-second refresh
+        private readonly Timer _statusTimer = new() { Interval = 5000 };
+        private readonly Label _versionLabel = new();
         private Config _cfg = null!;
 
         public MainForm()
         {
             InitializeComponent();
 
-            // keep repo link visible on narrow windows
-            linkRepo.Left = 12;
+            /* ── create version label dynamically ─────────────── */
+            _versionLabel.AutoSize = true;
+            _versionLabel.Text     = $"Version {Program.AppVersion}";
+            _versionLabel.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            Controls.Add(_versionLabel);
 
+            /* ── align version + repo link with View Logs button ─ */
+            const int gap = 8; // space between items
+            int leftEdge  = btnViewLogs.Left;
+            _versionLabel.Left = leftEdge;
+            _versionLabel.Top  = btnViewLogs.Top + btnViewLogs.Height + gap;
+
+            linkRepo.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            linkRepo.Top    = _versionLabel.Top;
+            linkRepo.Left   = leftEdge + btnViewLogs.Width - linkRepo.PreferredWidth;
+
+            /* ── load config and start status timer ────────────── */
             LoadConfig();
             UpdateServiceStatus();
-
             _statusTimer.Tick += (_, _) => UpdateServiceStatus();
             _statusTimer.Start();
         }
