@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Reflection;
 using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
@@ -9,12 +11,21 @@ namespace SmtpRelay.GUI
     {
         private const string MutexName = "SMTPRelayGuiSingleton";
 
+        /// <summary>Version string used by MainForm.Designer.cs</summary>
+        public static readonly string AppVersion =
+            FileVersionInfo.GetVersionInfo(
+                Assembly.GetExecutingAssembly().Location).FileVersion ??
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ??
+            "1.0.0";
+
         [STAThread]
         private static void Main()
         {
+            // ── single-instance guard ───────────────
             using var mx = new Mutex(true, MutexName, out bool isFirst);
             if (!isFirst) { ShowExistingWindow(); return; }
 
+            // ── admin check ────────────────────────
             if (!IsAdmin())
             {
                 MessageBox.Show("SMTP Relay Configuration must be run as Administrator.",
@@ -22,13 +33,13 @@ namespace SmtpRelay.GUI
                 return;
             }
 
+            // ── normal startup ─────────────────────
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
         }
 
-        /* ───── helpers ───── */
-
+        /* helpers */
         private static bool IsAdmin()
         {
             using var id = WindowsIdentity.GetCurrent();
@@ -48,8 +59,8 @@ namespace SmtpRelay.GUI
             public static readonly int WM_SHOWME =
                 RegisterWindowMessage("SMTP_RELAY_GUI_SHOWME");
 
-            [System.Runtime.InteropServices.DllImport("user32")] public static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
-            [System.Runtime.InteropServices.DllImport("user32")] public static extern int  RegisterWindowMessage(string s);
+            [System.Runtime.InteropServices.DllImport("user32")] public static extern bool PostMessage(IntPtr hWnd, int Msg, IntPtr w, IntPtr l);
+            [System.Runtime.InteropServices.DllImport("user32")] public static extern int  RegisterWindowMessage(string message);
         }
     }
 }
