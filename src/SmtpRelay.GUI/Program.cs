@@ -1,41 +1,55 @@
 using System;
-using System.IO;
-using System.Reflection;
+using System.Security.Principal;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace SmtpRelay.GUI
 {
     internal static class Program
     {
-        // Hard-coded to match Installed Apps version
-        public static string AppVersion => "1.4";
-
-        // Where the service writes its logs
-        public static string GetServiceLogDirectory()
-        {
-            var baseDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "SMTP Relay", "service", "logs");
-            return baseDir;
-        }
+        private const string MutexName = "SMTPRelayGuiSingleton";
 
         [STAThread]
-        static void Main()
+        private static void Main()
         {
-            ApplicationConfiguration.Initialize();
-            try
+            using var mx = new Mutex(true, MutexName, out bool isFirst);
+            if (!isFirst) { ShowExistingWindow(); return; }
+
+            if (!IsAdmin())
             {
-                Application.Run(new MainForm());
+                MessageBox.Show("SMTP Relay Configuration must be run as Administrator.",
+                                "SMTP Relay", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Unhandled exception starting GUI:\n\n{ex}",
-                    "Startup Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-            }
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new MainForm());
+        }
+
+        /* ───── helpers ───── */
+
+        private static bool IsAdmin()
+        {
+            using var id = WindowsIdentity.GetCurrent();
+            return new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
+        }
+
+        private static void ShowExistingWindow()
+        {
+            NativeMethods.PostMessage(
+                (IntPtr)NativeMethods.HWND_BROADCAST,
+                NativeMethods.WM_SHOWME, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        internal static class NativeMethods
+        {
+            public const int HWND_BROADCAST = 0xffff;
+            public static readonly int WM_SHOWME =
+                RegisterWindowMessage("SMTP_RELAY_GUI_SHOWME");
+
+            [System.Runtime.InteropServices.DllImport("user32")] public static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
+            [System.Runtime.InteropServices.DllImport("user32")] public static extern int  RegisterWindowMessage(string s);
         }
     }
 }
