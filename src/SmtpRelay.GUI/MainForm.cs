@@ -5,24 +5,22 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
-using Timer = System.Windows.Forms.Timer;   // ← disambiguate Timer
+using Timer = System.Windows.Forms.Timer;   // disambiguate Timer
 
 namespace SmtpRelay.GUI
 {
     public partial class MainForm : Form
     {
         private const string ServiceName = "SMTPRelayService";
-        private readonly Timer _statusTimer = new() { Interval = 5000 }; // 5 s refresh
-        private Config _cfg;
+        private readonly Timer _statusTimer = new() { Interval = 5000 }; // 5-second refresh
+        private Config _cfg = null!;
 
         public MainForm()
         {
             InitializeComponent();
 
-            // move version + link to keep them visible
-            labelVersion.Left = 12;
-            linkRepo.Left     = 12;
-            labelVersion.Text = $"Version {Program.AppVersion}";
+            // keep repo link visible on narrow windows
+            linkRepo.Left = 12;
 
             LoadConfig();
             UpdateServiceStatus();
