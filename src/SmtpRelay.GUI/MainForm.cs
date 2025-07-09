@@ -5,20 +5,21 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;   // ← disambiguate Timer
 
 namespace SmtpRelay.GUI
 {
     public partial class MainForm : Form
     {
         private const string ServiceName = "SMTPRelayService";
-        private readonly Timer _statusTimer = new() { Interval = 5000 };  // 5-second refresh
+        private readonly Timer _statusTimer = new() { Interval = 5000 }; // 5 s refresh
         private Config _cfg;
 
         public MainForm()
         {
             InitializeComponent();
 
-            // move version + link to left so they don't run off the form
+            // move version + link to keep them visible
             labelVersion.Left = 12;
             linkRepo.Left     = 12;
             labelVersion.Text = $"Version {Program.AppVersion}";
@@ -30,14 +31,75 @@ namespace SmtpRelay.GUI
             _statusTimer.Start();
         }
 
-        /* ───── CONFIG LOAD / SAVE (unchanged) ───── */
-        private void LoadConfig() { /* ... same content as before ... */ }
-        private void SaveConfig() { /* ... same content as before ... */ }
+        /* ───── CONFIG LOAD / SAVE ───── */
+        private void LoadConfig()
+        {
+            _cfg = Config.Load();
 
-        /* ───── UI state toggles (unchanged) ───── */
-        // chkStartTls_CheckedChanged, ToggleAuthFields, etc.
+            txtHost.Text           = _cfg.SmartHost;
+            numPort.Value          = _cfg.SmartHostPort;
+            chkStartTls.Checked    = _cfg.UseStartTls;
+            txtUsername.Text       = _cfg.Username;
+            txtPassword.Text       = _cfg.Password;
 
-        /* ───── Service status refresh ───── */
+            radioAllowAll.Checked  = _cfg.AllowAllIPs;
+            radioAllowList.Checked = !_cfg.AllowAllIPs;
+            txtIpList.Lines        = _cfg.AllowedIPs.ToArray();
+
+            chkEnableLogging.Checked = _cfg.EnableLogging;
+            numRetentionDays.Value   = _cfg.RetentionDays;
+
+            ToggleAuthFields();
+            ToggleIpField();
+            ToggleLoggingFields();
+        }
+
+        private void SaveConfig()
+        {
+            _cfg.SmartHost     = txtHost.Text.Trim();
+            _cfg.SmartHostPort = (int)numPort.Value;
+            _cfg.UseStartTls   = chkStartTls.Checked;
+            _cfg.Username      = txtUsername.Text;
+            _cfg.Password      = txtPassword.Text;
+
+            _cfg.AllowAllIPs = radioAllowAll.Checked;
+            _cfg.AllowedIPs  = txtIpList.Lines
+                               .Select(s => s.Trim())
+                               .Where(s => s.Length > 0)
+                               .ToList();
+
+            _cfg.EnableLogging = chkEnableLogging.Checked;
+            _cfg.RetentionDays = (int)numRetentionDays.Value;
+            _cfg.Save();
+        }
+
+        /* ───── UI toggles ───── */
+        private void chkStartTls_CheckedChanged(object sender, EventArgs e)
+        {
+            ToggleAuthFields();
+            if (!txtUsername.Enabled) { txtUsername.Clear(); txtPassword.Clear(); }
+            numPort.Value = chkStartTls.Checked ? 587 : 25;
+        }
+        private void ToggleAuthFields()
+        {
+            txtUsername.Enabled = chkStartTls.Checked;
+            txtPassword.Enabled = chkStartTls.Checked;
+        }
+
+        private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e)
+            => ToggleIpField();
+        private void ToggleIpField()
+            => txtIpList.Enabled = radioAllowList.Checked;
+
+        private void chkEnableLogging_CheckedChanged(object s, EventArgs e)
+            => ToggleLoggingFields();
+        private void ToggleLoggingFields()
+        {
+            numRetentionDays.Enabled = chkEnableLogging.Checked;
+            btnViewLogs.Enabled      = chkEnableLogging.Checked;
+        }
+
+        /* ───── SERVICE STATUS ───── */
         private void UpdateServiceStatus()
         {
             try
@@ -54,8 +116,28 @@ namespace SmtpRelay.GUI
             }
         }
 
-        /* ───── Buttons (unchanged except ViewLogs) ───── */
-        private void btnSave_Click(object sender, EventArgs e) { /* same */ }
+        /* ───── BUTTONS ───── */
+        private void btnSave_Click(object sender, EventArgs e)
+        {
+            SaveConfig();
+            try
+            {
+                using var sc = new ServiceController(ServiceName);
+                sc.Stop();
+                sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
+                sc.Start();
+                sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+
+                MessageBox.Show("Settings saved and service restarted.",
+                                "SMTP Relay", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                UpdateServiceStatus();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to restart service:\n{ex.Message}",
+                                "SMTP Relay", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
 
         private void btnViewLogs_Click(object sender, EventArgs e)
         {
@@ -66,10 +148,10 @@ namespace SmtpRelay.GUI
 
         private void btnClose_Click(object sender, EventArgs e) => Close();
 
-        private void linkRepo_LinkClicked(object s, LinkLabelLinkClickedEventArgs e)
+        private void linkRepo_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
             => Process.Start(new ProcessStartInfo(linkRepo.Text) { UseShellExecute = true });
 
-        /* ───── Single-instance activation ───── */
+        /* ───── SINGLE-INSTANCE ACTIVATE ───── */
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == Program.NativeMethods.WM_SHOWME)
