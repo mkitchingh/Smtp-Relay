@@ -7,15 +7,15 @@ namespace SmtpRelay
     {
         public static ILogger Initialise(Config cfg)
         {
-            var logDir = Config.SharedLogDir;                 // ← single folder
+            // One canonical folder for BOTH app and SMTP logs
+            var logDir = Config.SharedLogDir;            // ← no AppContext.BaseDirectory
             Directory.CreateDirectory(logDir);
 
             return Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                .WriteTo.File(
-                    Path.Combine(logDir, "app-.log"),
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: cfg.RetentionDays)
+                .WriteTo.File(Path.Combine(logDir, "app-.log"),
+                              rollingInterval: RollingInterval.Day,
+                              retainedFileCountLimit: cfg.RetentionDays)
                 .CreateLogger();
         }
     }
