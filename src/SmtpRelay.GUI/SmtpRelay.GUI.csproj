@@ -5,21 +5,18 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
 
-    <!-- app + file version shown in GUI -->
+    <!-- version string shown in GUI (Program.AppVersion) -->
     <AssemblyVersion>1.4.0.0</AssemblyVersion>
     <FileVersion>1.4.0.0</FileVersion>
 
-    <!-- optional: show icon in Windows Explorer / taskbar -->
+    <!-- set icon for EXE / taskbar -->
     <ApplicationIcon>smtp.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- ───── copy smtp.ico into build / publish folder ───── -->
   <ItemGroup>
-    <!-- adjust path if your icon lives elsewhere -->
-    <None Include="..\..\smtp.ico" Link="smtp.ico">
+    <None Include="smtp.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
