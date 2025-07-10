@@ -65,7 +65,8 @@ namespace SmtpRelay
 
             await smtp.ConnectAsync(
                 _cfg.SmartHost, _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
+                                 : SecureSocketOptions.None,
                 cancel);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -80,13 +81,13 @@ namespace SmtpRelay
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
             /* ── delimiter line after each conversation ────────── */
-            File.AppendAllText(protoPath, Environment.NewLine +
-                "-------------------------------------" + Environment.NewLine);
+            File.AppendAllText(protoPath,
+                Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
             return SmtpSrvResponse.Ok;
         }
 
-        /* ───────────────── minimal protocol logger (unchanged) ──────────── */
+        /* ========== minimal protocol logger (unchanged) ========== */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -122,27 +123,30 @@ namespace SmtpRelay
             private sealed class DummyDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
-
                 public IList<AuthenticationSecret> DetectSecrets(byte[] b, int o, int c)
-                    => new List<AuthenticationSecret>();    // empty list satisfies interface
+                    => new List<AuthenticationSecret>();
             }
         }
 
-        /* ───────── helper: works with every SmtpServer version ───────── */
+        /* ───────── helper: obtain client IP for any SmtpServer build ───────── */
         private static string? GetClientIp(ISessionContext ctx)
         {
             const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            /* try public/internal RemoteEndPoint property */
+            /* 1. public/internal RemoteEndPoint property */
             var prop = ctx.GetType().GetProperty("RemoteEndPoint", BF);
-            if (prop?.GetValue(ctx) is IPEndPoint ep) return ep.Address.ToString();
+            if (prop?.GetValue(ctx) is IPEndPoint epProp)
+                return epProp.Address.ToString();
 
-            /* fall back to Properties dictionary */
-            if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var obj) && obj is IPEndPoint ep2)
+            /* 2. known property keys */
+            var bag = ctx.Properties;
+            if (bag.TryGetValue("RemoteEndPoint", out var obj1) && obj1 is IPEndPoint ep1)
+                return ep1.Address.ToString();
+            if (bag.TryGetValue("SessionRemoteEndPoint", out var obj2) && obj2 is IPEndPoint ep2)
                 return ep2.Address.ToString();
 
-            /* last-chance: scan any IPEndPoint in Properties */
-            foreach (var v in ctx.Properties.Values)
+            /* 3. last-chance: any IPEndPoint in Properties.Values */
+            foreach (var v in bag.Values)
                 if (v is IPEndPoint ep3) return ep3.Address.ToString();
 
             return null;
