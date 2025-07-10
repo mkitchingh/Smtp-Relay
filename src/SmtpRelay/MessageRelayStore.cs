@@ -1,7 +1,8 @@
 using System;
 using System.Buffers;
-using System.Collections.Generic;          // ← added
+using System.Collections.Generic;
 using System.IO;
+using System.Net;                       // ← IPEndPoint
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -35,9 +36,13 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buf,
             CancellationToken      cancel)
         {
-            var clientIp = ctx.RemoteEndPoint?.Address?.ToString() ?? "unknown";
+            /* ---------- client IP (works on all SmtpServer builds) ---------- */
+            string clientIp = "unknown";
+            if (ctx.Properties.TryGet("SessionRemoteEndPoint", out var o) &&
+                o is IPEndPoint ep)
+                clientIp = ep.Address.ToString();
 
-            /* allow-list check */
+            /* ---------- relay restriction check ---------- */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -45,13 +50,13 @@ namespace SmtpRelay
                                            "Relay access denied");
             }
 
-            /* rebuild MimeMessage */
+            /* ---------- rebuild MimeMessage ---------- */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* log folder + protocol logger */
+            /* ---------- protocol log path ---------- */
             Directory.CreateDirectory(Config.SharedLogDir);
             var protoPath = Path.Combine(
                 Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
@@ -78,14 +83,14 @@ namespace SmtpRelay
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
-            /* delimiter after each conversation */
+            /* ---------- delimiter after each conversation ---------- */
             File.AppendAllText(protoPath,
                 Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
             return SmtpSrvResponse.Ok;
         }
 
-        /* ───────── minimal protocol logger ───────── */
+        /* ========== minimal protocol logger (unchanged) ========== */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -121,9 +126,8 @@ namespace SmtpRelay
             private sealed class DummyDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
-
                 public IList<AuthenticationSecret> DetectSecrets(byte[] b, int o, int c)
-                    => new List<AuthenticationSecret>();   // ← empty list satisfies interface
+                    => new List<AuthenticationSecret>();   // empty list satisfies interface
             }
         }
     }
