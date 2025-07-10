@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
-using Timer = System.Windows.Forms.Timer;   // disambiguate Timer
+using Timer = System.Windows.Forms.Timer;   // make Timer unambiguous
 
 namespace SmtpRelay.GUI
 {
@@ -13,37 +13,54 @@ namespace SmtpRelay.GUI
     {
         private const string ServiceName = "SMTPRelayService";
         private readonly Timer _statusTimer = new() { Interval = 5000 };
-        private readonly Label _versionLabel = new();
         private Config _cfg = null!;
 
         public MainForm()
         {
             InitializeComponent();
-
-            /* ── create version label dynamically ─────────────── */
-            _versionLabel.AutoSize = true;
-            _versionLabel.Text     = $"Version {Program.AppVersion}";
-            _versionLabel.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            Controls.Add(_versionLabel);
-
-            /* ── align version + repo link with View Logs button ─ */
-            const int gap = 8; // space between items
-            int leftEdge  = btnViewLogs.Left;
-            _versionLabel.Left = leftEdge;
-            _versionLabel.Top  = btnViewLogs.Top + btnViewLogs.Height + gap;
-
-            linkRepo.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            linkRepo.Top    = _versionLabel.Top;
-            linkRepo.Left   = leftEdge + btnViewLogs.Width - linkRepo.PreferredWidth;
-
-            /* ── load config and start status timer ────────────── */
+            BuildFooter();                    // ← new dynamic layout
             LoadConfig();
             UpdateServiceStatus();
+
             _statusTimer.Tick += (_, _) => UpdateServiceStatus();
             _statusTimer.Start();
         }
 
-        /* ───── CONFIG LOAD / SAVE ───── */
+        /* ───────── dynamic footer layout ───────── */
+        private void BuildFooter()
+        {
+            /* find View Logs button left-edge */
+            int leftEdge = btnViewLogs.Left;
+            int gap      = 6;     // vertical space
+
+            /* locate the “service will continue…” hint if present */
+            Control? hint = Controls
+                .OfType<Label>()
+                .FirstOrDefault(l => l.Text.StartsWith("Service will continue",
+                                                       StringComparison.OrdinalIgnoreCase));
+
+            int yBase = (hint?.Bottom ?? btnViewLogs.Bottom) + gap;
+
+            /* use existing designer labelVersion if present; otherwise create */
+            Label verLabel = Controls.OfType<Label>()
+                                     .FirstOrDefault(l => l.Name == "labelVersion")
+                          ?? new Label { AutoSize = true };
+
+            verLabel.Text   = $"Version {Program.AppVersion}";
+            verLabel.Left   = leftEdge;
+            verLabel.Top    = yBase;
+            verLabel.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+
+            if (!Controls.Contains(verLabel))
+                Controls.Add(verLabel);
+
+            /* position linkRepo beneath version label, same left edge */
+            linkRepo.Left   = leftEdge;
+            linkRepo.Top    = verLabel.Bottom + 2;
+            linkRepo.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+        }
+
+        /* ───────── config load / save (unchanged) ───────── */
         private void LoadConfig()
         {
             _cfg = Config.Load();
@@ -85,33 +102,15 @@ namespace SmtpRelay.GUI
             _cfg.Save();
         }
 
-        /* ───── UI toggles ───── */
-        private void chkStartTls_CheckedChanged(object sender, EventArgs e)
-        {
-            ToggleAuthFields();
-            if (!txtUsername.Enabled) { txtUsername.Clear(); txtPassword.Clear(); }
-            numPort.Value = chkStartTls.Checked ? 587 : 25;
-        }
-        private void ToggleAuthFields()
-        {
-            txtUsername.Enabled = chkStartTls.Checked;
-            txtPassword.Enabled = chkStartTls.Checked;
-        }
+        /* ───────── UI toggles (unchanged) ───────── */
+        private void chkStartTls_CheckedChanged(object s, EventArgs e) { ToggleAuthFields(); if (!txtUsername.Enabled) { txtUsername.Clear(); txtPassword.Clear(); } numPort.Value = chkStartTls.Checked ? 587 : 25; }
+        private void ToggleAuthFields() { txtUsername.Enabled = chkStartTls.Checked; txtPassword.Enabled = chkStartTls.Checked; }
+        private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e) => ToggleIpField();
+        private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
+        private void chkEnableLogging_CheckedChanged(object s, EventArgs e) => ToggleLoggingFields();
+        private void ToggleLoggingFields() { numRetentionDays.Enabled = chkEnableLogging.Checked; btnViewLogs.Enabled = chkEnableLogging.Checked; }
 
-        private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e)
-            => ToggleIpField();
-        private void ToggleIpField()
-            => txtIpList.Enabled = radioAllowList.Checked;
-
-        private void chkEnableLogging_CheckedChanged(object s, EventArgs e)
-            => ToggleLoggingFields();
-        private void ToggleLoggingFields()
-        {
-            numRetentionDays.Enabled = chkEnableLogging.Checked;
-            btnViewLogs.Enabled      = chkEnableLogging.Checked;
-        }
-
-        /* ───── SERVICE STATUS ───── */
+        /* ───────── service status refresh (unchanged) ───────── */
         private void UpdateServiceStatus()
         {
             try
@@ -128,17 +127,15 @@ namespace SmtpRelay.GUI
             }
         }
 
-        /* ───── BUTTONS ───── */
-        private void btnSave_Click(object sender, EventArgs e)
+        /* ───────── buttons (unchanged) ───────── */
+        private void btnSave_Click(object s, EventArgs e)
         {
             SaveConfig();
             try
             {
                 using var sc = new ServiceController(ServiceName);
-                sc.Stop();
-                sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
-                sc.Start();
-                sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+                sc.Stop();  sc.WaitForStatus(ServiceControllerStatus.Stopped,  TimeSpan.FromSeconds(10));
+                sc.Start(); sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
 
                 MessageBox.Show("Settings saved and service restarted.",
                                 "SMTP Relay", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -150,31 +147,26 @@ namespace SmtpRelay.GUI
                                 "SMTP Relay", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
-        private void btnViewLogs_Click(object sender, EventArgs e)
+        private void btnViewLogs_Click(object s, EventArgs e)
         {
             var logDir = Config.SharedLogDir;
             Directory.CreateDirectory(logDir);
             Process.Start("explorer.exe", logDir);
         }
-
-        private void btnClose_Click(object sender, EventArgs e) => Close();
-
-        private void linkRepo_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
+        private void btnClose_Click(object s, EventArgs e) => Close();
+        private void linkRepo_LinkClicked(object s, LinkLabelLinkClickedEventArgs e)
             => Process.Start(new ProcessStartInfo(linkRepo.Text) { UseShellExecute = true });
 
-        /* ───── SINGLE-INSTANCE ACTIVATE ───── */
+        /* ───────── single-instance activation (unchanged) ───────── */
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == Program.NativeMethods.WM_SHOWME)
             {
-                if (WindowState == FormWindowState.Minimized)
-                    WindowState = FormWindowState.Normal;
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
                 Activate();
             }
             base.WndProc(ref m);
         }
-
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _statusTimer.Stop();
