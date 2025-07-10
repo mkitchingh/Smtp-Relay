@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
-using Timer = System.Windows.Forms.Timer;   // explicitly use WinForms Timer
+using Timer = System.Windows.Forms.Timer;   // guarantee WinForms Timer
 
 namespace SmtpRelay.GUI
 {
@@ -20,7 +20,7 @@ namespace SmtpRelay.GUI
         public MainForm()
         {
             InitializeComponent();
-            BuildFooter();            // create + position version & link
+            BuildFooter();          // place Version + link
             LoadConfig();
             UpdateServiceStatus();
 
@@ -28,31 +28,30 @@ namespace SmtpRelay.GUI
             _statusTimer.Start();
         }
 
-        /* ───────── footer layout ───────── */
+        /* ───────── footer placement ───────── */
         private void BuildFooter()
         {
-            // Hide any designer-placed version label in lower-right
-            var oldVer = Controls.OfType<Label>()
-                                 .FirstOrDefault(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase));
-            if (oldVer != null) oldVer.Visible = false;
+            /* hide any designer version label (bottom-right) */
+            var old = Controls.OfType<Label>()
+                              .FirstOrDefault(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase));
+            if (old != null) old.Visible = false;
 
-            // Create new version label
+            /* create new Version label */
             _versionLabel.AutoSize = true;
             _versionLabel.Text     = $"Version {Program.AppVersion}";
             Controls.Add(_versionLabel);
 
-            int leftEdge = btnViewLogs.Left;   // align with View Logs button
-            int gap      = 6;
+            int left = btnViewLogs.Left;   // align with View Logs button
+            int gap  = 2;                  // vertical space between lines
 
-            // Try to find the "Service will continue to run" hint label by text
-            Control? hint = Controls
-                .OfType<Label>()
+            /* locate the “Service will continue to run” hint label */
+            Control? hint = Controls.OfType<Label>()
                 .FirstOrDefault(l => l.Text.StartsWith("Service will continue", StringComparison.OrdinalIgnoreCase));
 
-            int topBase = (hint?.Bottom ?? btnViewLogs.Bottom) + gap;
+            int y = hint?.Top ?? (btnViewLogs.Bottom + 6);
 
-            _versionLabel.Location = new Point(leftEdge, topBase);
-            linkRepo.Location      = new Point(leftEdge, _versionLabel.Bottom + 2);
+            _versionLabel.Location = new Point(left, y);
+            linkRepo.Location      = new Point(left, y + _versionLabel.Height + gap);
 
             _versionLabel.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
             linkRepo.Anchor      = AnchorStyles.Left | AnchorStyles.Bottom;
@@ -96,7 +95,7 @@ namespace SmtpRelay.GUI
             _cfg.Save();
         }
 
-        /* UI toggles (same logic as before) */
+        /* ───────── UI toggles (unchanged logic) ───────── */
         private void chkStartTls_CheckedChanged(object s, EventArgs e)
         {
             ToggleAuthFields();
@@ -104,10 +103,8 @@ namespace SmtpRelay.GUI
             numPort.Value = chkStartTls.Checked ? 587 : 25;
         }
         private void ToggleAuthFields() { txtUsername.Enabled = chkStartTls.Checked; txtPassword.Enabled = chkStartTls.Checked; }
-
         private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e) => ToggleIpField();
         private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
-
         private void chkEnableLogging_CheckedChanged(object s, EventArgs e) => ToggleLoggingFields();
         private void ToggleLoggingFields() { numRetentionDays.Enabled = chkEnableLogging.Checked; btnViewLogs.Enabled = chkEnableLogging.Checked; }
 
