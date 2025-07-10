@@ -1,31 +1,32 @@
-/* MessageRelayStore.cs – unified log folder + 550 reject code */
 using System;
 using System.Buffers;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using MailKit;
 using MailKit.Net.Smtp;
+using MailKit;
 using MailKit.Security;
 using MimeKit;
-using NetTools;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
     public sealed class MessageRelayStore : MessageStore
     {
-        private readonly Config  _cfg;
-        private readonly ILogger _log;
-        public MessageRelayStore(Config cfg, ILogger log) { _cfg = cfg; _log = log; }
+        private readonly Config          _cfg;
+        private readonly ILogger         _log;
+
+        public MessageRelayStore(Config cfg, ILogger log)
+        {
+            _cfg = cfg;
+            _log = log;
+        }
 
         public override async Task<SmtpResponse> SaveAsync(
             ISessionContext        ctx,
@@ -33,39 +34,33 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buf,
             CancellationToken      cancel)
         {
-            var clientIp = Normalise(TryGetClientIp(ctx));
+            var clientIp = ctx.RemoteEndPoint?.Address?.ToString() ?? "unknown";
 
-            /* ── allow-list check ─────────────────────────────── */
+            /* allow-list check */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
-
-                // 550 Relay Access Denied
-                return new SmtpResponse(SmtpReplyCode.MailboxUnavailable,
-                                        "Relay access denied");
+                return new SmtpResponse(SmtpReplyCode.MailboxUnavailable, "Relay access denied");
             }
 
-            /* ── rebuild MimeMessage ──────────────────────────── */
+            /* rebuild MimeMessage */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* ── shared log folder ────────────────────────────── */
-            var logDir   = Config.SharedLogDir;
-            Directory.CreateDirectory(logDir);
-            var protoPath = Path.Combine(logDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            /* shared log dir + protocol logger */
+            Directory.CreateDirectory(Config.SharedLogDir);
+            var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
-            /* ── send via smart-host ──────────────────────────── */
             _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
                 _cfg.SmartHost, _cfg.SmartHostPort, _cfg.UseStartTls);
 
             await smtp.ConnectAsync(
                 _cfg.SmartHost, _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
-                                 : SecureSocketOptions.None,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
                 cancel);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -78,11 +73,15 @@ namespace SmtpRelay
             await smtp.DisconnectAsync(true, cancel);
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
-            PurgeOldSmtpLogs(logDir, _cfg.RetentionDays);
+
+            /* ---- add delimiter line after each conversation ---- */
+            File.AppendAllText(protoPath, Environment.NewLine +
+                "-------------------------------------" + Environment.NewLine);
+
             return SmtpResponse.Ok;
         }
 
-        /* ───── minimal protocol logger (DATA suppressed) ───── */
+        /* MinimalProtocolLogger identical to previous version */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -91,7 +90,7 @@ namespace SmtpRelay
                 _sw = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
 
             public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; }
-                = new NoSecretDetector();
+                = new DummyDetector();
 
             public void LogConnect(Uri uri) =>
                 _sw.WriteLine($"[{DateTime.Now:HH:mm:ss}] CONNECT {uri}");
@@ -112,44 +111,12 @@ namespace SmtpRelay
                 _sw.WriteLine("S: " + System.Text.Encoding.ASCII.GetString(buffer, offset, count).TrimEnd());
             public void Dispose() { _sw.Flush(); _sw.Dispose(); }
 
-            private sealed class NoSecretDetector : IAuthenticationSecretDetector
+            private sealed class DummyDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
-                public IList<AuthenticationSecret> DetectSecrets(byte[] buffer, int o, int c)
+                public IList<AuthenticationSecret> DetectSecrets(byte[] b, int o, int c)
                     => Array.Empty<AuthenticationSecret>();
             }
         }
-
-        /* ───── helpers ─────────────────────────────────────── */
-        static void PurgeOldSmtpLogs(string dir, int keepDays)
-        {
-            try
-            {
-                foreach (var f in Directory.GetFiles(dir, "smtp-*.log"))
-                    if (File.GetCreationTimeUtc(f) < DateTime.UtcNow.AddDays(-keepDays))
-                        File.Delete(f);
-            } catch { /* ignore */ }
-        }
-
-        static string TryGetClientIp(ISessionContext ctx)
-        {
-            const BindingFlags BF = BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
-            foreach (var n in new[] { "RemoteEndPoint", "RemoteEndpoint" })
-                if (ctx.GetType().GetProperty(n, BF)?.GetValue(ctx) is IPEndPoint ep)
-                    return ep.Address.ToString();
-
-            var bag = ctx.GetType().GetProperty("Properties", BF)?.GetValue(ctx) as IEnumerable;
-            if (bag != null)
-                foreach (var e in bag)
-                {
-                    if (e is IPEndPoint ep) return ep.Address.ToString();
-                    var v = e.GetType().GetProperty("Value")?.GetValue(e) as IPEndPoint;
-                    if (v != null) return v.Address.ToString();
-                }
-            return "unknown";
-        }
-        static string Normalise(string ip) =>
-            IPAddress.TryParse(ip, out var a) && (IPAddress.IsLoopback(a) || a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any))
-                ? "127.0.0.1" : ip;
     }
 }
