@@ -8,24 +8,23 @@ using Serilog.Formatting.Compact;
 
 namespace SmtpRelay
 {
-    /// <summary>Configures Serilog and purges old log files daily.</summary>
     internal static class SmtpLogger
     {
         private static Timer? _purgeTimer;
 
         /* ------------------------------------------------------------------
-           PUBLIC API (kept identical to earlier builds)
+           PUBLIC API  (now returns Serilog.ILogger like original build)
            ------------------------------------------------------------------ */
 
         /// <summary>Initialise logging and daily purge (factory created inside).</summary>
-        public static void Initialise(Config cfg)
+        public static Serilog.ILogger Initialise(Config cfg)
         {
             var factory = LoggerFactory.Create(b => { b.AddSerilog(); });
-            Configure(cfg, factory);
+            return Configure(cfg, factory);
         }
 
         /// <summary>Initialise logging when an <see cref="ILoggerFactory"/> is already available.</summary>
-        public static void Initialise(Config cfg, ILoggerFactory factory) =>
+        public static Serilog.ILogger Initialise(Config cfg, ILoggerFactory factory) =>
             Configure(cfg, factory);
 
         /// <summary>Dispose purge timer (call from Worker.StopAsync).</summary>
@@ -35,7 +34,7 @@ namespace SmtpRelay
         /*  PRIVATE IMPLEMENTATION                                            */
         /* ------------------------------------------------------------------ */
 
-        private static void Configure(Config cfg, ILoggerFactory factory)
+        private static Serilog.ILogger Configure(Config cfg, ILoggerFactory factory)
         {
             Directory.CreateDirectory(Config.SharedLogDir);
 
@@ -44,13 +43,15 @@ namespace SmtpRelay
                 .WriteTo.File(new RenderedCompactJsonFormatter(),
                               Path.Combine(Config.SharedLogDir, "app-.log"),
                               rollingInterval: RollingInterval.Day,
-                              retainedFileCountLimit: null)          // we purge manually
+                              retainedFileCountLimit: null)
                 .CreateLogger();
 
             factory.AddSerilog();
 
-            PurgeOldLogs(cfg);                // first purge on startup
-            ScheduleDailyPurge(cfg);          // then every day at 02:00
+            PurgeOldLogs(cfg);       // first purge on startup
+            ScheduleDailyPurge(cfg); // daily purge at 02:00 local
+
+            return Log.Logger;       // <-- return for caller chaining
         }
 
         private static void ScheduleDailyPurge(Config cfg)
@@ -63,7 +64,7 @@ namespace SmtpRelay
             _purgeTimer = new Timer(_ => PurgeOldLogs(cfg),
                                      null,
                                      delay,
-                                     TimeSpan.FromDays(1));          // subsequent 24-h intervals
+                                     TimeSpan.FromDays(1));
         }
 
         private static void PurgeOldLogs(Config cfg)
