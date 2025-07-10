@@ -21,10 +21,10 @@ namespace SmtpRelay
         [JsonPropertyName("smartHostPort")] public int    SmartHostPort { get; set; } = 25;
         [JsonPropertyName("username")]      public string Username { get; set; } = "";
         [JsonPropertyName("password")]      public string Password { get; set; } = "";
-        [JsonPropertyName("useStartTls")]   public bool   UseStartTls { get; set; } = true;
+        [JsonPropertyName("useStartTls")]   public bool   UseStartTls { get; set; } = false;
 
         // IP allow-list
-        [JsonPropertyName("allowAllIPs")] public bool          AllowAllIPs { get; set; } = false;
+        [JsonPropertyName("allowAllIPs")] public bool          AllowAllIPs { get; set; } = true;
         [JsonPropertyName("allowedIPs")]  public List<string>  AllowedIPs  { get; set; } = new();
 
         // Logging
