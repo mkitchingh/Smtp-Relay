@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Events;
@@ -9,62 +8,82 @@ using Serilog.Formatting.Compact;
 
 namespace SmtpRelay
 {
-    /// <summary>Central logging and daily log-file purge.</summary>
+    /// <summary>Configures Serilog and purges old log files daily.</summary>
     internal static class SmtpLogger
     {
         private static Timer? _purgeTimer;
 
-        /// <summary>Configure Serilog sinks and start daily purge.</summary>
-        public static void ConfigureLogging(Config cfg, ILoggerFactory factory)
+        /* ------------------------------------------------------------------
+           PUBLIC API (kept identical to earlier builds)
+           ------------------------------------------------------------------ */
+
+        /// <summary>Initialise logging and daily purge (factory created inside).</summary>
+        public static void Initialise(Config cfg)
+        {
+            var factory = LoggerFactory.Create(b => { b.AddSerilog(); });
+            Configure(cfg, factory);
+        }
+
+        /// <summary>Initialise logging when an <see cref="ILoggerFactory"/> is already available.</summary>
+        public static void Initialise(Config cfg, ILoggerFactory factory) =>
+            Configure(cfg, factory);
+
+        /// <summary>Dispose purge timer (call from Worker.StopAsync).</summary>
+        public static void Shutdown() => _purgeTimer?.Dispose();
+
+        /* ------------------------------------------------------------------ */
+        /*  PRIVATE IMPLEMENTATION                                            */
+        /* ------------------------------------------------------------------ */
+
+        private static void Configure(Config cfg, ILoggerFactory factory)
         {
             Directory.CreateDirectory(Config.SharedLogDir);
-
-            var logPath = Path.Combine(Config.SharedLogDir, "app-.log");
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(new RenderedCompactJsonFormatter(),
-                              logPath,
+                              Path.Combine(Config.SharedLogDir, "app-.log"),
                               rollingInterval: RollingInterval.Day,
-                              retainedFileCountLimit: null)            // we purge manually
+                              retainedFileCountLimit: null)          // we purge manually
                 .CreateLogger();
 
             factory.AddSerilog();
 
-            // Initial purge on startup
-            PurgeOldLogs(cfg);
-
-            // Daily purge at 02:00 local
-            var now      = DateTime.Now;
-            var firstRun = new DateTime(now.Year, now.Month, now.Day, 2, 0, 0)
-                           .AddDays(now.Hour >= 2 ? 1 : 0);
-            var delayMs  = (int)(firstRun - now).TotalMilliseconds;
-            _purgeTimer  = new Timer(_ => PurgeOldLogs(cfg), null, delayMs, TimeSpan.FromDays(1).Milliseconds);
+            PurgeOldLogs(cfg);                // first purge on startup
+            ScheduleDailyPurge(cfg);          // then every day at 02:00
         }
 
-        /// <summary>Delete log files older than <see cref="Config.RetentionDays"/>.</summary>
+        private static void ScheduleDailyPurge(Config cfg)
+        {
+            var now      = DateTime.Now;
+            var firstRun = new DateTime(now.Year, now.Month, now.Day, 2, 0, 0);
+            if (now >= firstRun) firstRun = firstRun.AddDays(1);
+            var delay = firstRun - now;
+
+            _purgeTimer = new Timer(_ => PurgeOldLogs(cfg),
+                                     null,
+                                     delay,
+                                     TimeSpan.FromDays(1));          // subsequent 24-h intervals
+        }
+
         private static void PurgeOldLogs(Config cfg)
         {
             if (!cfg.EnableLogging || cfg.RetentionDays <= 0) return;
 
+            var cutoffUtc = DateTime.UtcNow.AddDays(-cfg.RetentionDays);
+
             try
             {
-                var cutoffUtc = DateTime.UtcNow.AddDays(-cfg.RetentionDays);
                 foreach (var file in Directory.EnumerateFiles(Config.SharedLogDir, "*.log"))
                 {
-                    var ts = File.GetLastWriteTimeUtc(file);
-                    if (ts < cutoffUtc)
+                    if (File.GetLastWriteTimeUtc(file) < cutoffUtc)
                         File.Delete(file);
                 }
             }
             catch (Exception ex)
             {
-                // swallow – logging must never crash the service
                 Log.Logger.Warning(ex, "Log-purge failed");
             }
         }
-
-        /// <summary>Dispose timer when service stops.</summary>
-        public static void Shutdown() => _purgeTimer?.Dispose();
     }
 }
