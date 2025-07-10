@@ -1,9 +1,6 @@
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -14,9 +11,8 @@ using MimeKit;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
-using IPAddressRange = NetTools.IPAddressRange;
 
-/* ── alias the correct SmtpResponse to avoid ambiguity ── */
+/* disambiguate SmtpResponse */
 using SmtpSrvResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
@@ -40,7 +36,7 @@ namespace SmtpRelay
         {
             var clientIp = ctx.RemoteEndPoint?.Address?.ToString() ?? "unknown";
 
-            /* ── allow-list check ─────────────────────────────── */
+            /* allow-list check */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -48,16 +44,16 @@ namespace SmtpRelay
                                            "Relay access denied");
             }
 
-            /* ── rebuild MimeMessage ──────────────────────────── */
+            /* rebuild MimeMessage */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* ── shared log folder & protocol logger ──────────── */
+            /* log folder + protocol logger */
             Directory.CreateDirectory(Config.SharedLogDir);
-            var protoPath = Path.Combine(Config.SharedLogDir,
-                                         $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            var protoPath = Path.Combine(
+                Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
@@ -81,14 +77,14 @@ namespace SmtpRelay
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
-            /* ── delimiter after each conversation ────────────── */
+            /* ---- delimiter line after each conversation ---- */
             File.AppendAllText(protoPath,
                 Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
             return SmtpSrvResponse.Ok;
         }
 
-        /* ───────────────── minimal protocol logger ──────────── */
+        /* ---------------- minimal protocol logger ---------------- */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
