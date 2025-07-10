@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;          // ← added
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -77,14 +78,14 @@ namespace SmtpRelay
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
-            /* ---- delimiter line after each conversation ---- */
+            /* delimiter after each conversation */
             File.AppendAllText(protoPath,
                 Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
             return SmtpSrvResponse.Ok;
         }
 
-        /* ---------------- minimal protocol logger ---------------- */
+        /* ───────── minimal protocol logger ───────── */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -120,8 +121,9 @@ namespace SmtpRelay
             private sealed class DummyDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
+
                 public IList<AuthenticationSecret> DetectSecrets(byte[] b, int o, int c)
-                    => Array.Empty<AuthenticationSecret>();
+                    => new List<AuthenticationSecret>();   // ← empty list satisfies interface
             }
         }
     }
