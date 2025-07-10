@@ -4,54 +4,64 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Events;
-using Serilog.Formatting.Compact;
 
 namespace SmtpRelay
 {
     internal static class SmtpLogger
     {
+        private static readonly object InitLock = new();
+        private static bool   _initialised;
         private static Timer? _purgeTimer;
 
         /* ------------------------------------------------------------------
-           PUBLIC API  (now returns Serilog.ILogger like original build)
+           PUBLIC API (signature unchanged)
            ------------------------------------------------------------------ */
 
-        /// <summary>Initialise logging and daily purge (factory created inside).</summary>
         public static Serilog.ILogger Initialise(Config cfg)
         {
-            var factory = LoggerFactory.Create(b => { b.AddSerilog(); });
-            return Configure(cfg, factory);
+            var factory = LoggerFactory.Create(b => b.AddSerilog());
+            return Initialise(cfg, factory);
         }
 
-        /// <summary>Initialise logging when an <see cref="ILoggerFactory"/> is already available.</summary>
-        public static Serilog.ILogger Initialise(Config cfg, ILoggerFactory factory) =>
-            Configure(cfg, factory);
+        public static Serilog.ILogger Initialise(Config cfg, ILoggerFactory factory)
+        {
+            lock (InitLock)
+            {
+                if (_initialised) return Log.Logger;   // <─ prevents _001 files
 
-        /// <summary>Dispose purge timer (call from Worker.StopAsync).</summary>
+                Configure(cfg, factory);
+                _initialised = true;
+                return Log.Logger;
+            }
+        }
+
         public static void Shutdown() => _purgeTimer?.Dispose();
 
-        /* ------------------------------------------------------------------ */
-        /*  PRIVATE IMPLEMENTATION                                            */
-        /* ------------------------------------------------------------------ */
+        /* ------------------------------------------------------------------
+           PRIVATE IMPLEMENTATION
+           ------------------------------------------------------------------ */
 
-        private static Serilog.ILogger Configure(Config cfg, ILoggerFactory factory)
+        private static void Configure(Config cfg, ILoggerFactory factory)
         {
             Directory.CreateDirectory(Config.SharedLogDir);
 
+            const string template =
+                "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
+
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
-                .WriteTo.File(new RenderedCompactJsonFormatter(),
-                              Path.Combine(Config.SharedLogDir, "app-.log"),
-                              rollingInterval: RollingInterval.Day,
-                              retainedFileCountLimit: null)
+                .WriteTo.File(
+                    path: Path.Combine(Config.SharedLogDir, "app-.log"),
+                    outputTemplate: template,               // ← plain text
+                    rollingInterval: RollingInterval.Day,
+                    shared: true,                           // safe across threads
+                    retainedFileCountLimit: null)
                 .CreateLogger();
 
             factory.AddSerilog();
 
-            PurgeOldLogs(cfg);       // first purge on startup
-            ScheduleDailyPurge(cfg); // daily purge at 02:00 local
-
-            return Log.Logger;       // <-- return for caller chaining
+            PurgeOldLogs(cfg);        // startup purge
+            ScheduleDailyPurge(cfg);  // daily at 02:00
         }
 
         private static void ScheduleDailyPurge(Config cfg)
