@@ -14,13 +14,17 @@ using MimeKit;
 using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
+using IPAddressRange = NetTools.IPAddressRange;
+
+/* ── alias the correct SmtpResponse to avoid ambiguity ── */
+using SmtpSrvResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
     public sealed class MessageRelayStore : MessageStore
     {
-        private readonly Config          _cfg;
-        private readonly ILogger         _log;
+        private readonly Config  _cfg;
+        private readonly ILogger _log;
 
         public MessageRelayStore(Config cfg, ILogger log)
         {
@@ -28,7 +32,7 @@ namespace SmtpRelay
             _log = log;
         }
 
-        public override async Task<SmtpResponse> SaveAsync(
+        public override async Task<SmtpSrvResponse> SaveAsync(
             ISessionContext        ctx,
             IMessageTransaction    txn,
             ReadOnlySequence<byte> buf,
@@ -36,22 +40,24 @@ namespace SmtpRelay
         {
             var clientIp = ctx.RemoteEndPoint?.Address?.ToString() ?? "unknown";
 
-            /* allow-list check */
+            /* ── allow-list check ─────────────────────────────── */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
-                return new SmtpResponse(SmtpReplyCode.MailboxUnavailable, "Relay access denied");
+                return new SmtpSrvResponse(SmtpReplyCode.MailboxUnavailable,
+                                           "Relay access denied");
             }
 
-            /* rebuild MimeMessage */
+            /* ── rebuild MimeMessage ──────────────────────────── */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* shared log dir + protocol logger */
+            /* ── shared log folder & protocol logger ──────────── */
             Directory.CreateDirectory(Config.SharedLogDir);
-            var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            var protoPath = Path.Combine(Config.SharedLogDir,
+                                         $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
@@ -60,7 +66,8 @@ namespace SmtpRelay
 
             await smtp.ConnectAsync(
                 _cfg.SmartHost, _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
+                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
+                                 : SecureSocketOptions.None,
                 cancel);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
@@ -74,18 +81,19 @@ namespace SmtpRelay
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
-            /* ---- add delimiter line after each conversation ---- */
-            File.AppendAllText(protoPath, Environment.NewLine +
-                "-------------------------------------" + Environment.NewLine);
+            /* ── delimiter after each conversation ────────────── */
+            File.AppendAllText(protoPath,
+                Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
-            return SmtpResponse.Ok;
+            return SmtpSrvResponse.Ok;
         }
 
-        /* MinimalProtocolLogger identical to previous version */
+        /* ───────────────── minimal protocol logger ──────────── */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
             private bool _inData;
+
             public MinimalProtocolLogger(string path) =>
                 _sw = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
 
@@ -107,8 +115,10 @@ namespace SmtpRelay
                 if (line.StartsWith("DATA", StringComparison.OrdinalIgnoreCase))
                     _inData = true;
             }
+
             public void LogServer(byte[] buffer, int offset, int count) =>
                 _sw.WriteLine("S: " + System.Text.Encoding.ASCII.GetString(buffer, offset, count).TrimEnd());
+
             public void Dispose() { _sw.Flush(); _sw.Dispose(); }
 
             private sealed class DummyDetector : IAuthenticationSecretDetector
