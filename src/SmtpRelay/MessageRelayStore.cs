@@ -16,7 +16,7 @@ using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
 
-/* disambiguate SmtpResponse */
+/* alias to avoid ambiguity */
 using SmtpSrvResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
@@ -40,22 +40,24 @@ namespace SmtpRelay
         {
             string clientIp = GetClientIp(ctx) ?? "unknown";
 
-            /* ── relay restriction check ─────────────────────── */
+            /* ---- relay restriction check ---- */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
-                return new SmtpSrvResponse(SmtpReplyCode.MailboxUnavailable, "Relay access denied");
+                return new SmtpSrvResponse(SmtpReplyCode.MailboxUnavailable,
+                                           "Relay access denied");
             }
 
-            /* ── rebuild MimeMessage ──────────────────────────── */
+            /* ---- rebuild MimeMessage ---- */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* ── protocol logger path ─────────────────────────── */
+            /* ---- protocol log ---- */
             Directory.CreateDirectory(Config.SharedLogDir);
-            var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            var protoPath = Path.Combine(
+                Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
             using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
 
@@ -79,14 +81,14 @@ namespace SmtpRelay
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
-            /* ── add delimiter after each conversation ────────── */
+            /* ---- delimiter ---- */
             File.AppendAllText(protoPath,
                 Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
             return SmtpSrvResponse.Ok;
         }
 
-        /* ========== minimal protocol logger (unchanged) ========== */
+        /* ------------- minimal protocol logger (unchanged) ------------- */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -127,35 +129,37 @@ namespace SmtpRelay
             }
         }
 
-        /* ───────── robust client-IP extractor ───────── */
+        /* ------------- robust client-IP extractor ------------- */
         private static string? GetClientIp(ISessionContext ctx)
         {
+            static bool IsReal(IPEndPoint ep) =>
+                !ep.Address.Equals(IPAddress.Any)  &&
+                !ep.Address.Equals(IPAddress.IPv6Any);
+
             const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            /* 1) direct property on ISessionContext implementation */
+            /* 1) public / internal EndPoint properties */
             foreach (var p in ctx.GetType().GetProperties(BF))
                 if (typeof(EndPoint).IsAssignableFrom(p.PropertyType) &&
-                    p.GetValue(ctx) is IPEndPoint epProp)
-                    return epProp.Address.ToString();
+                    p.GetValue(ctx) is IPEndPoint ep && IsReal(ep))
+                    return ep.Address.ToString();
 
-            /* 2) look for known keys in Properties bag */
-            if (ctx.Properties.TryGetValue("RemoteEndPoint", out var o1) && o1 is IPEndPoint ep1)
+            /* 2) common keys in Properties */
+            if (ctx.Properties.TryGetValue("RemoteEndPoint", out var o1) && o1 is IPEndPoint ep1 && IsReal(ep1))
                 return ep1.Address.ToString();
-            if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var o2) && o2 is IPEndPoint ep2)
+            if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var o2) && o2 is IPEndPoint ep2 && IsReal(ep2))
                 return ep2.Address.ToString();
 
-            /* 3) any IPEndPoint or parsable IP in bag values */
+            /* 3) any EndPoint or IP string in Properties.Values */
             foreach (var v in ctx.Properties.Values)
             {
-                switch (v)
-                {
-                    case IPEndPoint ipEp:
-                        return ipEp.Address.ToString();
-                    case EndPoint ep when ep is IPEndPoint ipep:
-                        return ipep.Address.ToString();
-                    case string s when IPAddress.TryParse(s, out var ip):
-                        return ip.ToString();
-                }
+                if (v is IPEndPoint ep3 && IsReal(ep3))
+                    return ep3.Address.ToString();
+                if (v is EndPoint ep4 && ep4 is IPEndPoint ipEp && IsReal(ipEp))
+                    return ipEp.Address.ToString();
+                if (v is string s && IPAddress.TryParse(s, out var ip) &&
+                    !ip.Equals(IPAddress.Any) && !ip.Equals(IPAddress.IPv6Any))
+                    return ip.ToString();
             }
             return null;
         }
