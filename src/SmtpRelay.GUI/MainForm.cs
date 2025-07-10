@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
-using Timer = System.Windows.Forms.Timer;   // WinForms Timer
+using Timer = System.Windows.Forms.Timer;   // pick WinForms Timer
 
 namespace SmtpRelay.GUI
 {
@@ -13,14 +13,13 @@ namespace SmtpRelay.GUI
     {
         private const string ServiceName = "SMTPRelayService";
         private readonly Timer _statusTimer = new() { Interval = 5000 };
-        private readonly Label _verLabel = new();
-
+        private readonly Label _footerVersion = new();
         private Config _cfg = null!;
 
         public MainForm()
         {
             InitializeComponent();
-            BuildFooter();
+            BuildFooter();            // position Version + link
             LoadConfig();
             UpdateServiceStatus();
 
@@ -28,56 +27,55 @@ namespace SmtpRelay.GUI
             _statusTimer.Start();
         }
 
-        /* ───── footer: Version + link aligned with hint row ───── */
+        /* ───────── footer layout ───────── */
         private void BuildFooter()
         {
-            // Hide any designer version label (bottom-right)
-            foreach (var l in Controls.OfType<Label>()
-                                      .Where(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase)))
-                l.Visible = false;
+            // hide any designer version label (lower-right)
+            foreach (var lbl in Controls.OfType<Label>()
+                                        .Where(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase)))
+                lbl.Visible = false;
 
-            // Create runtime Version label
-            _verLabel.AutoSize = true;
-            _verLabel.Text = $"Version {Program.AppVersion}";
-            Controls.Add(_verLabel);
+            // make runtime Version label
+            _footerVersion.AutoSize = true;
+            _footerVersion.Text     = $"Version {Program.AppVersion}";
+            Controls.Add(_footerVersion);
 
-            int left = btnViewLogs.Left;   // align left edge
-            int gap  = 2;                  // gap between version + link rows
+            int leftEdge = btnViewLogs.Left;   // align with View Logs
+            int gap      = 2;                  // vertical gap
 
-            // Find the hint label by text fragment
+            // locate "Service will continue to run" hint by text fragment
             Control? hint = Controls.OfType<Label>()
                 .FirstOrDefault(l => l.Text.IndexOf("Service will continue", StringComparison.OrdinalIgnoreCase) >= 0);
 
-            int y = hint?.Top ?? (btnViewLogs.Bottom + 6);
+            int top = hint != null ? hint.Bottom + gap
+                                   : btnViewLogs.Bottom + 6;
 
-            _verLabel.Location = new Point(left, y);
-            linkRepo.Location  = new Point(left, y + _verLabel.Height + gap);
+            _footerVersion.Location = new Point(leftEdge, top);
+            linkRepo.Location       = new Point(leftEdge, top + _footerVersion.Height + gap);
 
-            _verLabel.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
-            linkRepo.Anchor  = AnchorStyles.Left | AnchorStyles.Bottom;
+            _footerVersion.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+            linkRepo.Anchor       = AnchorStyles.Left | AnchorStyles.Bottom;
         }
 
-        /* ───── Config load / save (unchanged) ───── */
+        /* ───────── config load / save (unchanged) ───────── */
         private void LoadConfig()
         {
             _cfg = Config.Load();
-            txtHost.Text        = _cfg.SmartHost;
-            numPort.Value       = _cfg.SmartHostPort;
-            chkStartTls.Checked = _cfg.UseStartTls;
-            txtUsername.Text    = _cfg.Username;
-            txtPassword.Text    = _cfg.Password;
-
+            txtHost.Text           = _cfg.SmartHost;
+            numPort.Value          = _cfg.SmartHostPort;
+            chkStartTls.Checked    = _cfg.UseStartTls;
+            txtUsername.Text       = _cfg.Username;
+            txtPassword.Text       = _cfg.Password;
             radioAllowAll.Checked  = _cfg.AllowAllIPs;
             radioAllowList.Checked = !_cfg.AllowAllIPs;
             txtIpList.Lines        = _cfg.AllowedIPs.ToArray();
-
             chkEnableLogging.Checked = _cfg.EnableLogging;
             numRetentionDays.Value   = _cfg.RetentionDays;
-
             ToggleAuthFields();
             ToggleIpField();
             ToggleLoggingFields();
         }
+
         private void SaveConfig()
         {
             _cfg.SmartHost     = txtHost.Text.Trim();
@@ -92,7 +90,7 @@ namespace SmtpRelay.GUI
             _cfg.Save();
         }
 
-        /* ───── UI toggles (unchanged) ───── */
+        /* ───────── UI toggles (unchanged) ───────── */
         private void chkStartTls_CheckedChanged(object s, EventArgs e)
         {
             ToggleAuthFields();
@@ -101,11 +99,11 @@ namespace SmtpRelay.GUI
         }
         private void ToggleAuthFields() { txtUsername.Enabled = chkStartTls.Checked; txtPassword.Enabled = chkStartTls.Checked; }
         private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e) => ToggleIpField();
-        private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
+        private void ToggleIpField()  => txtIpList.Enabled = radioAllowList.Checked;
         private void chkEnableLogging_CheckedChanged(object s, EventArgs e) => ToggleLoggingFields();
         private void ToggleLoggingFields() { numRetentionDays.Enabled = chkEnableLogging.Checked; btnViewLogs.Enabled = chkEnableLogging.Checked; }
 
-        /* ───── Service status refresh (unchanged) ───── */
+        /* ───────── service status refresh (unchanged) ───────── */
         private void UpdateServiceStatus()
         {
             try
@@ -122,7 +120,7 @@ namespace SmtpRelay.GUI
             }
         }
 
-        /* ───── Buttons (unchanged) ───── */
+        /* ───────── buttons (unchanged) ───────── */
         private void btnSave_Click(object s, EventArgs e)
         {
             SaveConfig();
@@ -151,7 +149,7 @@ namespace SmtpRelay.GUI
         private void linkRepo_LinkClicked(object s, LinkLabelLinkClickedEventArgs e)
             => Process.Start(new ProcessStartInfo(linkRepo.Text) { UseShellExecute = true });
 
-        /* ───── Single-instance activation (unchanged) ───── */
+        /* ───────── single-instance activate (unchanged) ───────── */
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == Program.NativeMethods.WM_SHOWME)
