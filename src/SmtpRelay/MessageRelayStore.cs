@@ -16,7 +16,7 @@ using SmtpServer;
 using SmtpServer.Protocol;
 using SmtpServer.Storage;
 
-/* alias to avoid ambiguity */
+/* disambiguate SmtpResponse */
 using SmtpSrvResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
@@ -38,57 +38,57 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buf,
             CancellationToken      cancel)
         {
+            /* ---------- client IP ---------- */
             string clientIp = GetClientIp(ctx) ?? "unknown";
 
-            /* ---- relay restriction check ---- */
+            /* ---------- relay restriction ---------- */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
-                return new SmtpSrvResponse(SmtpReplyCode.MailboxUnavailable,
-                                           "Relay access denied");
+                return new SmtpSrvResponse(SmtpReplyCode.MailboxUnavailable, "Relay access denied");
             }
 
-            /* ---- rebuild MimeMessage ---- */
+            /* ---------- rebuild MimeMessage ---------- */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* ---- protocol log ---- */
+            /* ---------- protocol log path ---------- */
             Directory.CreateDirectory(Config.SharedLogDir);
-            var protoPath = Path.Combine(
-                Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+            var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
-            using var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath));
-
-            _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
-                _cfg.SmartHost, _cfg.SmartHostPort, _cfg.UseStartTls);
-
-            await smtp.ConnectAsync(
-                _cfg.SmartHost, _cfg.SmartHostPort,
-                _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
-                                 : SecureSocketOptions.None,
-                cancel);
-
-            if (!string.IsNullOrWhiteSpace(_cfg.Username))
+            /* ---------- send via smarthost ---------- */
+            using (var smtp = new SmtpClient(new MinimalProtocolLogger(protoPath)))
             {
-                _log.LogInformation("Authenticating as {User}", _cfg.Username);
-                await smtp.AuthenticateAsync(_cfg.Username, _cfg.Password, cancel);
-            }
+                _log.LogInformation("Connecting to {Host}:{Port} (STARTTLS={TLS})",
+                    _cfg.SmartHost, _cfg.SmartHostPort, _cfg.UseStartTls);
 
-            await smtp.SendAsync(message, cancel);
-            await smtp.DisconnectAsync(true, cancel);
+                await smtp.ConnectAsync(
+                    _cfg.SmartHost, _cfg.SmartHostPort,
+                    _cfg.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable
+                                     : SecureSocketOptions.None,
+                    cancel);
 
-            _log.LogInformation("Relayed mail from {IP}", clientIp);
+                if (!string.IsNullOrWhiteSpace(_cfg.Username))
+                {
+                    _log.LogInformation("Authenticating as {User}", _cfg.Username);
+                    await smtp.AuthenticateAsync(_cfg.Username, _cfg.Password, cancel);
+                }
 
-            /* ---- delimiter ---- */
+                await smtp.SendAsync(message, cancel);
+                await smtp.DisconnectAsync(true, cancel);
+            } // logger disposed here, file closed
+
+            /* ---------- append delimiter (file now free) ---------- */
             File.AppendAllText(protoPath,
                 Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
+            _log.LogInformation("Relayed mail from {IP}", clientIp);
             return SmtpSrvResponse.Ok;
         }
 
-        /* ------------- minimal protocol logger (unchanged) ------------- */
+        /* ---------- minimal protocol logger (unchanged) ---------- */
         private sealed class MinimalProtocolLogger : IProtocolLogger, IDisposable
         {
             private readonly StreamWriter _sw;
@@ -129,36 +129,31 @@ namespace SmtpRelay
             }
         }
 
-        /* ------------- robust client-IP extractor ------------- */
+        /* ---------- robust client-IP extractor (unchanged) ---------- */
         private static string? GetClientIp(ISessionContext ctx)
         {
             static bool IsReal(IPEndPoint ep) =>
-                !ep.Address.Equals(IPAddress.Any)  &&
-                !ep.Address.Equals(IPAddress.IPv6Any);
+                !ep.Address.Equals(IPAddress.Any)  && !ep.Address.Equals(IPAddress.IPv6Any);
 
             const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            /* 1) public / internal EndPoint properties */
             foreach (var p in ctx.GetType().GetProperties(BF))
                 if (typeof(EndPoint).IsAssignableFrom(p.PropertyType) &&
                     p.GetValue(ctx) is IPEndPoint ep && IsReal(ep))
                     return ep.Address.ToString();
 
-            /* 2) common keys in Properties */
             if (ctx.Properties.TryGetValue("RemoteEndPoint", out var o1) && o1 is IPEndPoint ep1 && IsReal(ep1))
                 return ep1.Address.ToString();
             if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var o2) && o2 is IPEndPoint ep2 && IsReal(ep2))
                 return ep2.Address.ToString();
 
-            /* 3) any EndPoint or IP string in Properties.Values */
             foreach (var v in ctx.Properties.Values)
             {
                 if (v is IPEndPoint ep3 && IsReal(ep3))
                     return ep3.Address.ToString();
                 if (v is EndPoint ep4 && ep4 is IPEndPoint ipEp && IsReal(ipEp))
                     return ipEp.Address.ToString();
-                if (v is string s && IPAddress.TryParse(s, out var ip) &&
-                    !ip.Equals(IPAddress.Any) && !ip.Equals(IPAddress.IPv6Any))
+                if (v is string s && IPAddress.TryParse(s, out var ip) && IsReal(new IPEndPoint(ip, 0)))
                     return ip.ToString();
             }
             return null;
