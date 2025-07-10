@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
-using Timer = System.Windows.Forms.Timer;   // choose WinForms Timer
+using Timer = System.Windows.Forms.Timer;   // explicitly use WinForms Timer
 
 namespace SmtpRelay.GUI
 {
@@ -13,14 +13,14 @@ namespace SmtpRelay.GUI
     {
         private const string ServiceName = "SMTPRelayService";
         private readonly Timer _statusTimer = new() { Interval = 5000 };
-        private readonly Label _footerVersion = new();
+        private readonly Label _versionLabel = new();
+
         private Config _cfg = null!;
 
         public MainForm()
         {
             InitializeComponent();
-
-            BuildFooter();          // place version + link
+            BuildFooter();            // create + position version & link
             LoadConfig();
             UpdateServiceStatus();
 
@@ -28,52 +28,58 @@ namespace SmtpRelay.GUI
             _statusTimer.Start();
         }
 
-        /* ───────────────── footer layout ───────────────── */
+        /* ───────── footer layout ───────── */
         private void BuildFooter()
         {
-            /* Hide the designer-placed version label (bottom-right) */
-            var designerVer = Controls
+            // Hide any designer-placed version label in lower-right
+            var oldVer = Controls.OfType<Label>()
+                                 .FirstOrDefault(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase));
+            if (oldVer != null) oldVer.Visible = false;
+
+            // Create new version label
+            _versionLabel.AutoSize = true;
+            _versionLabel.Text     = $"Version {Program.AppVersion}";
+            Controls.Add(_versionLabel);
+
+            int leftEdge = btnViewLogs.Left;   // align with View Logs button
+            int gap      = 6;
+
+            // Try to find the "Service will continue to run" hint label by text
+            Control? hint = Controls
                 .OfType<Label>()
-                .FirstOrDefault(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase));
-            if (designerVer != null) designerVer.Visible = false;
+                .FirstOrDefault(l => l.Text.StartsWith("Service will continue", StringComparison.OrdinalIgnoreCase));
 
-            /* Add new version label */
-            _footerVersion.AutoSize = true;
-            _footerVersion.Text     = $"Version {Program.AppVersion}";
-            Controls.Add(_footerVersion);
+            int topBase = (hint?.Bottom ?? btnViewLogs.Bottom) + gap;
 
-            const int gap = 6;  // vertical spacing
+            _versionLabel.Location = new Point(leftEdge, topBase);
+            linkRepo.Location      = new Point(leftEdge, _versionLabel.Bottom + 2);
 
-            int left = btnViewLogs.Left;                       // align with View Logs
-            int top  = lblServiceHint.Bottom + gap;            // lblServiceHint is the
-                                                               // “Service will continue…” label
-            _footerVersion.Location = new Point(left, top);
-
-            linkRepo.Location = new Point(left, _footerVersion.Bottom + 2);
-            linkRepo.AutoSize = true;
-
-            _footerVersion.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
-            linkRepo.Anchor       = AnchorStyles.Left | AnchorStyles.Bottom;
+            _versionLabel.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+            linkRepo.Anchor      = AnchorStyles.Left | AnchorStyles.Bottom;
         }
 
         /* ───────── config load / save (unchanged) ───────── */
         private void LoadConfig()
         {
             _cfg = Config.Load();
-            txtHost.Text         = _cfg.SmartHost;
-            numPort.Value        = _cfg.SmartHostPort;
-            chkStartTls.Checked  = _cfg.UseStartTls;
-            txtUsername.Text     = _cfg.Username;
-            txtPassword.Text     = _cfg.Password;
+            txtHost.Text           = _cfg.SmartHost;
+            numPort.Value          = _cfg.SmartHostPort;
+            chkStartTls.Checked    = _cfg.UseStartTls;
+            txtUsername.Text       = _cfg.Username;
+            txtPassword.Text       = _cfg.Password;
+
             radioAllowAll.Checked  = _cfg.AllowAllIPs;
             radioAllowList.Checked = !_cfg.AllowAllIPs;
             txtIpList.Lines        = _cfg.AllowedIPs.ToArray();
+
             chkEnableLogging.Checked = _cfg.EnableLogging;
             numRetentionDays.Value   = _cfg.RetentionDays;
+
             ToggleAuthFields();
             ToggleIpField();
             ToggleLoggingFields();
         }
+
         private void SaveConfig()
         {
             _cfg.SmartHost     = txtHost.Text.Trim();
@@ -83,24 +89,27 @@ namespace SmtpRelay.GUI
             _cfg.Password      = txtPassword.Text;
             _cfg.AllowAllIPs   = radioAllowAll.Checked;
             _cfg.AllowedIPs    = txtIpList.Lines.Select(s => s.Trim())
-                                                .Where(s => s.Length > 0).ToList();
+                                                .Where(s => s.Length > 0)
+                                                .ToList();
             _cfg.EnableLogging = chkEnableLogging.Checked;
             _cfg.RetentionDays = (int)numRetentionDays.Value;
             _cfg.Save();
         }
 
-        /* ───────── UI toggles (unchanged code) ───────── */
+        /* UI toggles (same logic as before) */
         private void chkStartTls_CheckedChanged(object s, EventArgs e)
         {
             ToggleAuthFields();
             if (!txtUsername.Enabled) { txtUsername.Clear(); txtPassword.Clear(); }
             numPort.Value = chkStartTls.Checked ? 587 : 25;
         }
-        private void ToggleAuthFields()       { txtUsername.Enabled = chkStartTls.Checked; txtPassword.Enabled = chkStartTls.Checked; }
+        private void ToggleAuthFields() { txtUsername.Enabled = chkStartTls.Checked; txtPassword.Enabled = chkStartTls.Checked; }
+
         private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e) => ToggleIpField();
-        private void ToggleIpField()          => txtIpList.Enabled = radioAllowList.Checked;
+        private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
+
         private void chkEnableLogging_CheckedChanged(object s, EventArgs e) => ToggleLoggingFields();
-        private void ToggleLoggingFields()    { numRetentionDays.Enabled = chkEnableLogging.Checked; btnViewLogs.Enabled = chkEnableLogging.Checked; }
+        private void ToggleLoggingFields() { numRetentionDays.Enabled = chkEnableLogging.Checked; btnViewLogs.Enabled = chkEnableLogging.Checked; }
 
         /* ───────── service status (unchanged) ───────── */
         private void UpdateServiceStatus()
@@ -148,7 +157,7 @@ namespace SmtpRelay.GUI
         private void linkRepo_LinkClicked(object s, LinkLabelLinkClickedEventArgs e)
             => Process.Start(new ProcessStartInfo(linkRepo.Text) { UseShellExecute = true });
 
-        /* ───────── single-instance activate (unchanged) ───────── */
+        /* ───────── single-instance activation (unchanged) ───────── */
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == Program.NativeMethods.WM_SHOWME)
