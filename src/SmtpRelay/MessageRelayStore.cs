@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;                       // ← IPEndPoint
+using System.Net;                       // IPEndPoint
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -36,11 +36,13 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buf,
             CancellationToken      cancel)
         {
-            /* ---------- client IP (works on all SmtpServer builds) ---------- */
+            /* ---------- client IP (safe for any SmtpServer build) ---------- */
             string clientIp = "unknown";
-            if (ctx.Properties.TryGet("SessionRemoteEndPoint", out var o) &&
-                o is IPEndPoint ep)
+            if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var obj) &&
+                obj is IPEndPoint ep)
+            {
                 clientIp = ep.Address.ToString();
+            }
 
             /* ---------- relay restriction check ---------- */
             if (!_cfg.IsIPAllowed(clientIp))
@@ -126,6 +128,7 @@ namespace SmtpRelay
             private sealed class DummyDetector : IAuthenticationSecretDetector
             {
                 public bool IsSecret(string text) => false;
+
                 public IList<AuthenticationSecret> DetectSecrets(byte[] b, int o, int c)
                     => new List<AuthenticationSecret>();   // empty list satisfies interface
             }
