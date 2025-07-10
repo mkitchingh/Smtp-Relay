@@ -38,23 +38,22 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buf,
             CancellationToken      cancel)
         {
-            /* ── robust client-IP extraction ───────────────────── */
             string clientIp = GetClientIp(ctx) ?? "unknown";
 
-            /* ── relay restriction check ───────────────────────── */
+            /* ── relay restriction check ─────────────────────── */
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
                 return new SmtpSrvResponse(SmtpReplyCode.MailboxUnavailable, "Relay access denied");
             }
 
-            /* ── rebuild MimeMessage from buffer ───────────────── */
+            /* ── rebuild MimeMessage ──────────────────────────── */
             using var ms = new MemoryStream();
             foreach (var seg in buf) ms.Write(seg.Span);
             ms.Position = 0;
             var message = MimeMessage.Load(ms);
 
-            /* ── protocol log file ─────────────────────────────── */
+            /* ── protocol logger path ─────────────────────────── */
             Directory.CreateDirectory(Config.SharedLogDir);
             var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
@@ -80,7 +79,7 @@ namespace SmtpRelay
 
             _log.LogInformation("Relayed mail from {IP}", clientIp);
 
-            /* ── delimiter line after each conversation ────────── */
+            /* ── add delimiter after each conversation ────────── */
             File.AppendAllText(protoPath,
                 Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
@@ -128,27 +127,36 @@ namespace SmtpRelay
             }
         }
 
-        /* ───────── helper: obtain client IP for any SmtpServer build ───────── */
+        /* ───────── robust client-IP extractor ───────── */
         private static string? GetClientIp(ISessionContext ctx)
         {
             const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            /* 1. public/internal RemoteEndPoint property */
-            var prop = ctx.GetType().GetProperty("RemoteEndPoint", BF);
-            if (prop?.GetValue(ctx) is IPEndPoint epProp)
-                return epProp.Address.ToString();
+            /* 1) direct property on ISessionContext implementation */
+            foreach (var p in ctx.GetType().GetProperties(BF))
+                if (typeof(EndPoint).IsAssignableFrom(p.PropertyType) &&
+                    p.GetValue(ctx) is IPEndPoint epProp)
+                    return epProp.Address.ToString();
 
-            /* 2. known property keys */
-            var bag = ctx.Properties;
-            if (bag.TryGetValue("RemoteEndPoint", out var obj1) && obj1 is IPEndPoint ep1)
+            /* 2) look for known keys in Properties bag */
+            if (ctx.Properties.TryGetValue("RemoteEndPoint", out var o1) && o1 is IPEndPoint ep1)
                 return ep1.Address.ToString();
-            if (bag.TryGetValue("SessionRemoteEndPoint", out var obj2) && obj2 is IPEndPoint ep2)
+            if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var o2) && o2 is IPEndPoint ep2)
                 return ep2.Address.ToString();
 
-            /* 3. last-chance: any IPEndPoint in Properties.Values */
-            foreach (var v in bag.Values)
-                if (v is IPEndPoint ep3) return ep3.Address.ToString();
-
+            /* 3) any IPEndPoint or parsable IP in bag values */
+            foreach (var v in ctx.Properties.Values)
+            {
+                switch (v)
+                {
+                    case IPEndPoint ipEp:
+                        return ipEp.Address.ToString();
+                    case EndPoint ep when ep is IPEndPoint ipep:
+                        return ipep.Address.ToString();
+                    case string s when IPAddress.TryParse(s, out var ip):
+                        return ip.ToString();
+                }
+            }
             return null;
         }
     }
