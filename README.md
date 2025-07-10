@@ -1,5 +1,4 @@
 # Windows SMTP Relay Service
-Windows SMTP Relay Service with GUI configuration tool.
 Microsoft removed the built in SMTP relay server from Windows. This is a replacement.
 Every other option I could find was no longer developed, overkill, or lacking features unless you used the paid version. 
 It is actively being developed and I will always try to keep it up to to date with current technologies.
