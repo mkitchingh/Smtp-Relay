@@ -2,12 +2,13 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using MimeKit;
 using SmtpServer;
-using SmtpServer.Storage;
 using SmtpServer.Protocol;
+using SmtpServer.Storage;
 using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
@@ -62,10 +63,21 @@ namespace SmtpRelay
                     mode,
                     socketOptions);
 
-                using var client = new MailKit.Net.Smtp.SmtpClient
+                // Restore MailKit protocol logging (smtp-YYYYMMDD.log) when logging is enabled
+                MailKit.ProtocolLogger? protocolLogger = null;
+                if (_cfg.EnableLogging)
                 {
-                    Timeout = 15000
-                };
+                    Directory.CreateDirectory(Config.SharedLogDir);
+                    var smtpLogPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+                    protocolLogger = new MailKit.ProtocolLogger(smtpLogPath, true);
+                }
+
+                using (protocolLogger)
+                using var client = protocolLogger != null
+                    ? new SmtpClient(protocolLogger)
+                    : new SmtpClient();
+
+                client.Timeout = 15000;
 
                 await client.ConnectAsync(
                     _cfg.SmartHost,
