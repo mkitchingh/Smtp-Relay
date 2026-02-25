@@ -1,95 +1,53 @@
 using System;
-using System.IO;
-using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 namespace SmtpRelay
 {
-    public static class MailSender
+    public class MailSender
     {
-        private static readonly string BaseDir = Path.Combine(
-            Environment.GetFolderPath(
-                Environment.SpecialFolder.ProgramFiles),
-            "SMTP Relay", "service");
+        private readonly ILogger<MailSender> _logger;
 
-        private static readonly string LogDir = Path.Combine(BaseDir, "logs");
-
-        public static async Task SendAsync(
-            Config cfg,
-            ReadOnlySequence<byte> buffer,
-            CancellationToken ct)
+        public MailSender(ILogger<MailSender> logger)
         {
-            // Ensure logs directory exists
-            Directory.CreateDirectory(LogDir);
+            _logger = logger;
+        }
 
-            // Protocol transcript file: smtp-proto-YYYYMMDD.log
-            var protoPath = Path.Combine(
-                LogDir,
-                $"smtp-proto-{DateTime.Now:yyyyMMdd}.log");
+        public async Task SendAsync(MimeMessage message, Config cfg, CancellationToken ct = default)
+        {
+            if (message == null) throw new ArgumentNullException(nameof(message));
+            if (cfg == null) throw new ArgumentNullException(nameof(cfg));
 
-            // Attach our filtered logger to the outgoing client
-            using var client = new SmtpClient(
-                new FilteredProtocolLogger(protoPath));
-
-            try
+            var mode = cfg.GetEffectiveSecurity();
+            var options = mode switch
             {
-                var security = cfg.GetEffectiveSecurity();
+                OutboundSecurityMode.Smtps => SecureSocketOptions.SslOnConnect, // SMTPS (465)
+                OutboundSecurityMode.StartTls => SecureSocketOptions.StartTls,  // STARTTLS (587)
+                _ => SecureSocketOptions.None
+            };
 
-                Log.Information(
-                    "Connecting to {Host}:{Port} (Security={Security})",
-                    cfg.SmartHost, cfg.SmartHostPort, security);
+            _logger.LogInformation("Connecting to {Host}:{Port} (Security={Security}, SocketOptions={Options})",
+                cfg.SmartHost, cfg.SmartHostPort, mode, options);
 
-                var socketOpts = security switch
-                {
-                    OutboundSecurityMode.None     => SecureSocketOptions.None,
-                    OutboundSecurityMode.StartTls => SecureSocketOptions.StartTls,
-                    OutboundSecurityMode.Smtps    => SecureSocketOptions.SslOnConnect,
-                    _                             => SecureSocketOptions.None
-                };
+            using var client = new SmtpClient();
 
-                await client.ConnectAsync(
-                        cfg.SmartHost,
-                        cfg.SmartHostPort,
-                        socketOpts,
-                        ct)
-                    .ConfigureAwait(false);
+            // Reasonable timeouts; avoid hanging forever
+            client.Timeout = 15000;
 
-                if (!string.IsNullOrWhiteSpace(cfg.Username))
-                {
-                    Log.Information("Authenticating as {User}", cfg.Username);
-                    await client.AuthenticateAsync(
-                            cfg.Username, cfg.Password, ct)
-                        .ConfigureAwait(false);
-                }
+            await client.ConnectAsync(cfg.SmartHost, cfg.SmartHostPort, options, ct).ConfigureAwait(false);
 
-                // Load the inbound message
-                using var ms = new MemoryStream(buffer.ToArray());
-                var message = await MimeMessage
-                    .LoadAsync(ms, ct)
-                    .ConfigureAwait(false);
-
-                Log.Information(
-                    "Sending message from {From} to {To}",
-                    message.From, message.To);
-
-                await client.SendAsync(message, ct)
-                            .ConfigureAwait(false);
-
-                await client.DisconnectAsync(true, ct)
-                            .ConfigureAwait(false);
-
-                Log.Information("Smarthost relay complete");
-            }
-            catch (Exception ex)
+            // Authenticate only if username provided (supports unauthenticated relays)
+            if (!string.IsNullOrWhiteSpace(cfg.Username))
             {
-                Log.Error(ex, "Error relaying message to smarthost");
-                throw;
+                await client.AuthenticateAsync(cfg.Username, cfg.Password ?? string.Empty, ct).ConfigureAwait(false);
             }
+
+            await client.SendAsync(message, ct).ConfigureAwait(false);
+            await client.DisconnectAsync(true, ct).ConfigureAwait(false);
         }
     }
 }

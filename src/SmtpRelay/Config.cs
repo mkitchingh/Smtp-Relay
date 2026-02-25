@@ -1,84 +1,88 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NetTools;
 
 namespace SmtpRelay
 {
     public enum OutboundSecurityMode
     {
-        None,
-        StartTls,
-        Smtps
+        None = 0,
+        StartTls = 1,
+        Smtps = 2
     }
 
-    public sealed class Config
+    public class Config
     {
-        // ───────── shared root:  …\SMTP Relay\  ─────────
-        private static readonly string RootDir =
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
-        private static readonly string ConfigPath = Path.Combine(RootDir, "config.json");
+        // Shared install locations
+        public static readonly string SharedBaseDir = AppContext.BaseDirectory;
+        public static readonly string SharedConfigPath = Path.Combine(SharedBaseDir, "config.json");
+        public static readonly string SharedLogDir = Path.Combine(SharedBaseDir, "logs");
 
-        // SMTP / credentials
-        [JsonPropertyName("smartHost")]     public string SmartHost { get; set; } = "";
-        [JsonPropertyName("smartHostPort")] public int    SmartHostPort { get; set; } = 25;
-        [JsonPropertyName("username")]      public string Username { get; set; } = "";
-        [JsonPropertyName("password")]      public string Password { get; set; } = "";
-        [JsonPropertyName("useStartTls")]   public bool   UseStartTls { get; set; } = false;
-        [JsonPropertyName("outboundSecurity")] public OutboundSecurityMode? OutboundSecurity { get; set; } = null;
+        public string SmartHost { get; set; } = "";
+        public int SmartHostPort { get; set; } = 25;
 
-        // IP allow-list
-        [JsonPropertyName("allowAllIPs")] public bool          AllowAllIPs { get; set; } = true;
-        [JsonPropertyName("allowedIPs")]  public List<string>  AllowedIPs  { get; set; } = new();
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
 
-        // Logging
-        [JsonPropertyName("enableLogging")] public bool EnableLogging { get; set; } = true;
-        [JsonPropertyName("retentionDays")] public int  RetentionDays { get; set; } = 14;
+        // Legacy flag (existing installs)
+        public bool UseStartTls { get; set; } = false;
+
+        // New: explicit outbound security (optional for backward compatibility)
+        public OutboundSecurityMode? OutboundSecurity { get; set; } = null;
+
+        public bool AllowAllIPs { get; set; } = true;
+        public List<string> AllowedIPs { get; set; } = new();
+
+        public bool EnableLogging { get; set; } = true;
+        public int RetentionDays { get; set; } = 14;
 
         public OutboundSecurityMode GetEffectiveSecurity()
         {
-            if (OutboundSecurity.HasValue) return OutboundSecurity.Value;
-            return UseStartTls ? OutboundSecurityMode.StartTls : OutboundSecurityMode.None;
-        }
+            // Prefer explicit new mode if present; otherwise fall back to legacy UseStartTls
+            if (OutboundSecurity.HasValue)
+                return OutboundSecurity.Value;
 
-        // ───────── helpers ─────────
-        public bool IsIPAllowed(string ip)
-        {
-            if (AllowAllIPs) return true;
-            return AllowedIPs.Any(r => IPAddressRange.Parse(r).Contains(IPAddress.Parse(ip)));
+            return UseStartTls ? OutboundSecurityMode.StartTls : OutboundSecurityMode.None;
         }
 
         public static Config Load()
         {
-            return File.Exists(ConfigPath)
-                ? JsonSerializer.Deserialize<Config>(File.ReadAllText(ConfigPath)) ?? new()
-                : new();
+            if (!File.Exists(SharedConfigPath))
+                return new Config();
+
+            var json = File.ReadAllText(SharedConfigPath);
+
+            var opts = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            };
+
+            // Allow enum values to be written as strings OR numbers safely
+            opts.Converters.Add(new JsonStringEnumConverter());
+
+            var cfg = JsonSerializer.Deserialize<Config>(json, opts) ?? new Config();
+
+            // Defensive defaults
+            if (cfg.SmartHostPort <= 0) cfg.SmartHostPort = 25;
+            cfg.AllowedIPs ??= new List<string>();
+
+            return cfg;
         }
 
         public void Save()
         {
-            NormaliseAllowedIPs();
-            foreach (var r in AllowedIPs) _ = IPAddressRange.Parse(r); // validate
-            Directory.CreateDirectory(RootDir);
-            File.WriteAllText(ConfigPath,
-                JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        }
+            var opts = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+            opts.Converters.Add(new JsonStringEnumConverter());
 
-        private void NormaliseAllowedIPs()
-        {
-            char[] delims = { ',', ';', ' ', '\t', '\n', '\r' };
-            AllowedIPs = AllowedIPs
-                .SelectMany(s => s.Split(delims, StringSplitOptions.RemoveEmptyEntries))
-                .Select(s => s.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var json = JsonSerializer.Serialize(this, opts);
+            File.WriteAllText(SharedConfigPath, json);
         }
-
-        // Expose shared log dir to other classes
-        public static string SharedLogDir => Path.Combine(RootDir, "logs");
     }
 }
