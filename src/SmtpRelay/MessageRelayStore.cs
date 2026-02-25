@@ -1,23 +1,23 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using MailKit.Net.Smtp;
 using MailKit.Security;
+using Microsoft.Extensions.Logging;
 using MimeKit;
-using Serilog;
-using SmtpServer.Protocol;
+using SmtpServer;
 using SmtpServer.Storage;
+using SmtpServer.Protocol;
+using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
     public class MessageRelayStore : IMessageStore
     {
         private readonly Config _cfg;
-        private readonly Serilog.ILogger _log;
+        private readonly ILogger<MessageRelayStore> _log;
 
-        public MessageRelayStore(Config cfg, Serilog.ILogger log)
+        public MessageRelayStore(Config cfg, ILogger<MessageRelayStore> log)
         {
             _cfg = cfg;
             _log = log;
@@ -26,31 +26,46 @@ namespace SmtpRelay
         public async Task<SmtpResponse> SaveAsync(
             ISessionContext context,
             IMessageTransaction transaction,
-            ReadOnlySequence<byte> buffer,
+            System.Buffers.ReadOnlySequence<byte> buffer,
             CancellationToken cancellationToken)
         {
             try
             {
-                var data = buffer.ToArray();
-                var message = MimeMessage.Load(new MemoryStream(data));
+                // Convert the SMTPServer buffer into a stream (safe, standard pattern)
+                await using var stream = new MemoryStream();
+                var position = buffer.GetPosition(0);
 
+                while (buffer.TryGet(ref position, out var memory))
+                {
+                    await stream.WriteAsync(memory, cancellationToken);
+                }
+
+                stream.Position = 0;
+
+                // Parse message
+                var message = await MimeMessage.LoadAsync(stream, cancellationToken);
+
+                // Determine outbound security mode (backward compatible)
                 var mode = _cfg.GetEffectiveSecurity();
 
                 var socketOptions = mode switch
                 {
                     OutboundSecurityMode.Smtps    => SecureSocketOptions.SslOnConnect, // SMTPS / 465
                     OutboundSecurityMode.StartTls => SecureSocketOptions.StartTls,     // STARTTLS / 587
-                    _                             => SecureSocketOptions.None         // None / 25 (or whatever port)
+                    _                             => SecureSocketOptions.None
                 };
 
-                _log.Information(
+                _log.LogInformation(
                     "Connecting to {Host}:{Port} (Security={Security}, SocketOptions={Options})",
                     _cfg.SmartHost,
                     _cfg.SmartHostPort,
                     mode,
                     socketOptions);
 
-                using var client = new SmtpClient();
+                using var client = new MailKit.Net.Smtp.SmtpClient
+                {
+                    Timeout = 15000
+                };
 
                 await client.ConnectAsync(
                     _cfg.SmartHost,
@@ -58,6 +73,7 @@ namespace SmtpRelay
                     socketOptions,
                     cancellationToken);
 
+                // Authenticate only when a username is provided
                 if (!string.IsNullOrWhiteSpace(_cfg.Username))
                 {
                     await client.AuthenticateAsync(
@@ -73,7 +89,7 @@ namespace SmtpRelay
             }
             catch (Exception ex)
             {
-                _log.Error(ex, "Relay failure from {Remote}", context.RemoteEndPoint);
+                _log.LogError(ex, "Relay failure");
                 return SmtpResponse.TransactionFailed;
             }
         }
