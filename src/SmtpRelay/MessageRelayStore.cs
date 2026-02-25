@@ -32,7 +32,6 @@ namespace SmtpRelay
         {
             try
             {
-                // Convert the SMTPServer buffer into a stream
                 await using var stream = new MemoryStream();
                 var position = buffer.GetPosition(0);
 
@@ -43,16 +42,14 @@ namespace SmtpRelay
 
                 stream.Position = 0;
 
-                // Parse message
                 var message = await MimeMessage.LoadAsync(stream, cancellationToken);
 
-                // Determine outbound security mode (backward compatible)
                 var mode = _cfg.GetEffectiveSecurity();
 
                 var socketOptions = mode switch
                 {
-                    OutboundSecurityMode.Smtps    => SecureSocketOptions.SslOnConnect, // SMTPS / 465
-                    OutboundSecurityMode.StartTls => SecureSocketOptions.StartTls,     // STARTTLS / 587
+                    OutboundSecurityMode.Smtps    => SecureSocketOptions.SslOnConnect,
+                    OutboundSecurityMode.StartTls => SecureSocketOptions.StartTls,
                     _                             => SecureSocketOptions.None
                 };
 
@@ -63,13 +60,12 @@ namespace SmtpRelay
                     mode,
                     socketOptions);
 
-                // Restore MailKit protocol logging (smtp-YYYYMMDD.log) when logging is enabled
                 if (_cfg.EnableLogging)
                 {
                     Directory.CreateDirectory(Config.SharedLogDir);
                     var smtpLogPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
-                    using var protocolLogger = new MailKit.ProtocolLogger(smtpLogPath, true);
+                    using var protocolLogger = new RedactingSmtpProtocolLogger(smtpLogPath, append: true);
                     using var client = new SmtpClient(protocolLogger) { Timeout = 15000 };
 
                     await SendWithClientAsync(client, message, socketOptions, cancellationToken);
