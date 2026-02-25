@@ -50,6 +50,21 @@ namespace SmtpRelay
         }
 
         /// <summary>
+        /// Convenience overload: accepts a string IP (or null) and parses it, then calls the IPAddress version.
+        /// This matches callsites that pass strings.
+        /// </summary>
+        public bool IsIPAllowed(string? remoteIpString)
+        {
+            if (AllowAllIPs) return true;
+            if (string.IsNullOrWhiteSpace(remoteIpString)) return false;
+
+            if (!IPAddress.TryParse(remoteIpString.Trim(), out var parsed))
+                return false;
+
+            return IsIPAllowed(parsed);
+        }
+
+        /// <summary>
         /// Checks whether a remote IP is allowed to relay.
         /// Supports:
         /// - AllowAllIPs = true => allow
@@ -62,6 +77,7 @@ namespace SmtpRelay
             if (AllowAllIPs) return true;
             if (remoteIp == null) return false;
 
+            // Defensive: ensure AllowedIPs is non-null
             if (AllowedIPs == null || AllowedIPs.Count == 0) return false;
 
             foreach (var raw in AllowedIPs)
@@ -193,6 +209,7 @@ namespace SmtpRelay
 
             var cfg = JsonSerializer.Deserialize<Config>(json, opts) ?? new Config();
 
+            // Defensive defaults to avoid nullability issues
             if (cfg.SmartHostPort <= 0) cfg.SmartHostPort = 25;
             cfg.AllowedIPs ??= new List<string>();
 
