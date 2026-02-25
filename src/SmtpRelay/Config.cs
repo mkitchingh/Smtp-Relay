@@ -18,13 +18,18 @@ namespace SmtpRelay
 
     public class Config
     {
-        // Shared install locations (service + GUI use base dir of their exe)
-        public static readonly string SharedBaseDir = AppContext.BaseDirectory;
-        public static readonly string SharedConfigPath = Path.Combine(SharedBaseDir, "config.json");
-        public static readonly string SharedLogDir = Path.Combine(SharedBaseDir, "logs");
+        // Shared install locations:
+        // We want the parent folder of the exe (so both gui\ and service\ share the same config).
+        public static readonly string SharedBaseDir =
+            Directory.GetParent(
+                AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            )?.FullName ?? AppContext.BaseDirectory;
 
-        public string SmartHost { get; set; } = "";
-        public int SmartHostPort { get; set; } = 25;
+        public static readonly string SharedConfigPath = Path.Combine(SharedBaseDir, "config.json");
+        public static readonly string SharedLogDir     = Path.Combine(SharedBaseDir, "logs");
+
+        public string SmartHost     { get; set; } = "";
+        public int    SmartHostPort { get; set; } = 25;
 
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
@@ -35,11 +40,11 @@ namespace SmtpRelay
         // New explicit mode (optional; backward compatible)
         public OutboundSecurityMode? OutboundSecurity { get; set; } = null;
 
-        public bool AllowAllIPs { get; set; } = true;
-        public List<string> AllowedIPs { get; set; } = new();
+        public bool          AllowAllIPs { get; set; } = true;
+        public List<string>  AllowedIPs  { get; set; } = new();
 
         public bool EnableLogging { get; set; } = true;
-        public int RetentionDays { get; set; } = 14;
+        public int  RetentionDays { get; set; } = 14;
 
         public OutboundSecurityMode GetEffectiveSecurity()
         {
@@ -77,7 +82,6 @@ namespace SmtpRelay
             if (AllowAllIPs) return true;
             if (remoteIp == null) return false;
 
-            // Defensive: ensure AllowedIPs is non-null
             if (AllowedIPs == null || AllowedIPs.Count == 0) return false;
 
             foreach (var raw in AllowedIPs)
@@ -151,10 +155,10 @@ namespace SmtpRelay
         {
             if (ip.AddressFamily != network.AddressFamily) return false;
 
-            var ipVal = ToBigInt(ip);
+            var ipVal  = ToBigInt(ip);
             var netVal = ToBigInt(network);
 
-            int bits = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
+            int bits     = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
             int hostBits = bits - prefixLength;
 
             if (hostBits == bits) // /0
@@ -180,7 +184,6 @@ namespace SmtpRelay
 
         private static BigInteger ToBigInt(IPAddress ip)
         {
-            // Convert to unsigned BigInteger in network byte order
             var bytes = ip.GetAddressBytes();
 
             // BigInteger expects little-endian; add a 0 byte to force unsigned
@@ -209,7 +212,6 @@ namespace SmtpRelay
 
             var cfg = JsonSerializer.Deserialize<Config>(json, opts) ?? new Config();
 
-            // Defensive defaults to avoid nullability issues
             if (cfg.SmartHostPort <= 0) cfg.SmartHostPort = 25;
             cfg.AllowedIPs ??= new List<string>();
 
