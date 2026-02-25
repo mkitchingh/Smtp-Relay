@@ -18,7 +18,7 @@ namespace SmtpRelay.GUI
         private Config _cfg = null!;
 
         // Runtime Outbound Security UI (no Designer edits)
-        private Panel _pnlOutboundSecurity = null!;
+        private FlowLayoutPanel _flpOutboundSecurity = null!;
         private Label _lblOutboundSecurity = null!;
         private RadioButton _rbSecNone = null!;
         private RadioButton _rbSecStartTls = null!;
@@ -27,7 +27,7 @@ namespace SmtpRelay.GUI
         private bool _loading;
         private bool _credentialsDirty;
 
-        // Pending selections until the window handle exists (NO DEFAULTING; apply config)
+        // Pending selections until the window handle exists (apply config; no defaults)
         private OutboundSecurityMode? _pendingSecuritySelection;
         private bool? _pendingAllowAllIpsSelection;
 
@@ -52,7 +52,6 @@ namespace SmtpRelay.GUI
 
                 if (_pendingAllowAllIpsSelection.HasValue)
                 {
-                    // Reflect config exactly: allowAllIPs true => Allow All, false => Allow Specified
                     radioAllowAll.Checked = _pendingAllowAllIpsSelection.Value;
                     radioAllowList.Checked = !_pendingAllowAllIpsSelection.Value;
                     _pendingAllowAllIpsSelection = null;
@@ -91,36 +90,25 @@ namespace SmtpRelay.GUI
             linkRepo.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         }
 
-        /* ───────── Outbound Security UI (container-based; prevents clipping) ───────── */
+        /* ───────── Outbound Security UI (FlowLayoutPanel; prevents clipping/truncation) ───────── */
         private void BuildOutboundSecurityUi()
         {
             // Hide old STARTTLS checkbox (legacy only)
             chkStartTls.Visible = false;
             chkStartTls.TabStop = false;
 
-            // Anchor relative to Port control (stable reference)
-            int panelLeft = numPort.Right + 20;
-            int panelTop = numPort.Top - 2;
-
-            _pnlOutboundSecurity = new Panel
-            {
-                Location = new Point(panelLeft, panelTop),
-                Size = new Size(430, numPort.Height + 8),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left
-            };
-
             _lblOutboundSecurity = new Label
             {
                 AutoSize = true,
                 Text = "Outbound Security:",
-                Location = new Point(0, 4)
+                Margin = new Padding(0, 4, 10, 0)
             };
 
             _rbSecNone = new RadioButton
             {
                 AutoSize = true,
                 Text = "None",
-                Location = new Point(_lblOutboundSecurity.Right + 10, 2),
+                Margin = new Padding(0, 2, 14, 0),
                 UseVisualStyleBackColor = true
             };
 
@@ -128,7 +116,7 @@ namespace SmtpRelay.GUI
             {
                 AutoSize = true,
                 Text = "STARTTLS",
-                Location = new Point(_rbSecNone.Right + 14, 2),
+                Margin = new Padding(0, 2, 14, 0),
                 UseVisualStyleBackColor = true
             };
 
@@ -136,7 +124,7 @@ namespace SmtpRelay.GUI
             {
                 AutoSize = true,
                 Text = "SMTPS (SSL/TLS)",
-                Location = new Point(_rbSecStartTls.Right + 14, 2),
+                Margin = new Padding(0, 2, 0, 0),
                 UseVisualStyleBackColor = true
             };
 
@@ -144,12 +132,23 @@ namespace SmtpRelay.GUI
             _rbSecStartTls.CheckedChanged += SecurityRadio_CheckedChanged;
             _rbSecSmtps.CheckedChanged += SecurityRadio_CheckedChanged;
 
-            _pnlOutboundSecurity.Controls.Add(_lblOutboundSecurity);
-            _pnlOutboundSecurity.Controls.Add(_rbSecNone);
-            _pnlOutboundSecurity.Controls.Add(_rbSecStartTls);
-            _pnlOutboundSecurity.Controls.Add(_rbSecSmtps);
+            _flpOutboundSecurity = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                Location = new Point(numPort.Right + 20, numPort.Top - 2),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
 
-            Controls.Add(_pnlOutboundSecurity);
+            _flpOutboundSecurity.Controls.Add(_lblOutboundSecurity);
+            _flpOutboundSecurity.Controls.Add(_rbSecNone);
+            _flpOutboundSecurity.Controls.Add(_rbSecStartTls);
+            _flpOutboundSecurity.Controls.Add(_rbSecSmtps);
+
+            Controls.Add(_flpOutboundSecurity);
         }
 
         private void WireCredentialDirtyTracking()
@@ -233,7 +232,7 @@ namespace SmtpRelay.GUI
             ToggleAuthFields(mode);
         }
 
-        /* ───────── config load / save (READ CONFIG; NO DEFAULTING) ───────── */
+        /* ───────── config load / save (read config; no defaults) ───────── */
         private void LoadConfig()
         {
             _loading = true;
@@ -249,7 +248,6 @@ namespace SmtpRelay.GUI
             txtUsername.Text = _cfg.Username;
             txtPassword.Text = _cfg.Password;
 
-            // Reflect config exactly
             ApplyRelayRestrictionSafely(_cfg.AllowAllIPs);
 
             txtIpList.Lines = _cfg.AllowedIPs.ToArray();
@@ -294,7 +292,7 @@ namespace SmtpRelay.GUI
             _credentialsDirty = false;
         }
 
-        /* ───────── legacy handlers kept safe ───────── */
+        /* ───────── legacy handler kept safe ───────── */
         private void chkStartTls_CheckedChanged(object s, EventArgs e)
         {
             if (_loading) return;
