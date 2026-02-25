@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Windows.Forms;
-using Timer = System.Windows.Forms.Timer; // pick WinForms Timer namespace
+using Timer = System.Windows.Forms.Timer;
 
 namespace SmtpRelay.GUI
 {
@@ -27,14 +27,29 @@ namespace SmtpRelay.GUI
         private bool _loading;
         private bool _credentialsDirty;
 
+        // Pending selection until the window handle exists
+        private OutboundSecurityMode? _pendingSecuritySelection;
+
         public MainForm()
         {
             InitializeComponent();
 
-            BuildOutboundSecurityUi(); // add radios at runtime, hide old checkbox
+            BuildOutboundSecurityUi();
             WireCredentialDirtyTracking();
+            BuildFooter();
 
-            BuildFooter(); // version/link footer placement
+            // Apply any pending security selection once handle exists (safe; no BeginInvoke needed)
+            this.HandleCreated += (_, _) =>
+            {
+                if (_pendingSecuritySelection.HasValue)
+                {
+                    _loading = true;
+                    SetSelectedSecurity(_pendingSecuritySelection.Value);
+                    _loading = false;
+                    _pendingSecuritySelection = null;
+                }
+            };
+
             LoadConfig();
             UpdateServiceStatus();
 
@@ -45,7 +60,6 @@ namespace SmtpRelay.GUI
         /* ───────── footer ───────── */
         private void BuildFooter()
         {
-            // Hide any designer version label in bottom-right
             foreach (var l in Controls.OfType<Label>()
                          .Where(l => l.Text.StartsWith("Version", StringComparison.OrdinalIgnoreCase)))
                 l.Visible = false;
@@ -68,11 +82,11 @@ namespace SmtpRelay.GUI
         /* ───────── Outbound Security UI (runtime, stable positioning) ───────── */
         private void BuildOutboundSecurityUi()
         {
-            // Hide old STARTTLS checkbox; keep it only as a legacy backing field.
+            // Hide old STARTTLS checkbox (legacy only)
             chkStartTls.Visible = false;
             chkStartTls.TabStop = false;
 
-            // Anchor relative to the Port control (stable reference)
+            // Anchor relative to Port control (stable reference)
             int baseTop = numPort.Top;
             int baseLeft = numPort.Right + 20;
 
@@ -135,6 +149,7 @@ namespace SmtpRelay.GUI
 
         private void SetSelectedSecurity(OutboundSecurityMode mode)
         {
+            // Ensure one is always selected visibly
             _rbSecNone.Checked = mode == OutboundSecurityMode.None;
             _rbSecStartTls.Checked = mode == OutboundSecurityMode.StartTls;
             _rbSecSmtps.Checked = mode == OutboundSecurityMode.Smtps;
@@ -143,6 +158,20 @@ namespace SmtpRelay.GUI
             chkStartTls.Checked = mode == OutboundSecurityMode.StartTls;
 
             ToggleAuthFields(mode);
+        }
+
+        private void ApplySecuritySelectionSafely(OutboundSecurityMode mode)
+        {
+            // If handle not created yet, stash selection to apply later
+            if (!IsHandleCreated)
+            {
+                _pendingSecuritySelection = mode;
+                return;
+            }
+
+            _loading = true;
+            SetSelectedSecurity(mode);
+            _loading = false;
         }
 
         private void SecurityRadio_CheckedChanged(object? sender, EventArgs e)
@@ -156,7 +185,7 @@ namespace SmtpRelay.GUI
             chkStartTls.Checked = mode == OutboundSecurityMode.StartTls;
             _loading = false;
 
-            // Default ports per requirement (only when user changes selection)
+            // Default ports per requirement when USER changes selection
             numPort.Value = mode switch
             {
                 OutboundSecurityMode.None => 25,
@@ -179,9 +208,7 @@ namespace SmtpRelay.GUI
             numPort.Value = _cfg.SmartHostPort;
 
             var security = _cfg.GetEffectiveSecurity();
-
-            // IMPORTANT: set checked state after layout is complete
-            BeginInvoke(new Action(() => SetSelectedSecurity(security)));
+            ApplySecuritySelectionSafely(security);
 
             txtUsername.Text = _cfg.Username;
             txtPassword.Text = _cfg.Password;
@@ -193,6 +220,7 @@ namespace SmtpRelay.GUI
             chkEnableLogging.Checked = _cfg.EnableLogging;
             numRetentionDays.Value = _cfg.RetentionDays;
 
+            // After loading from disk, credentials are not "dirty"
             _credentialsDirty = false;
 
             ToggleAuthFields(security);
@@ -230,20 +258,18 @@ namespace SmtpRelay.GUI
             _cfg.RetentionDays = (int)numRetentionDays.Value;
 
             _cfg.Save();
-
             _credentialsDirty = false;
         }
 
-        /* ───────── original handlers kept compatible ───────── */
+        /* ───────── legacy handlers kept safe ───────── */
         private void chkStartTls_CheckedChanged(object s, EventArgs e)
         {
-            // Checkbox is hidden; keep handler safe.
             if (_loading) return;
 
             var mode = chkStartTls.Checked ? OutboundSecurityMode.StartTls : OutboundSecurityMode.None;
 
             _loading = true;
-            SetSelectedSecurity(mode);
+            ApplySecuritySelectionSafely(mode);
             _loading = false;
 
             numPort.Value = chkStartTls.Checked ? 587 : 25;
