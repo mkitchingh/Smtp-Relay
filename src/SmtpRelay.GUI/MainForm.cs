@@ -17,18 +17,19 @@ namespace SmtpRelay.GUI
 
         private Config _cfg = null!;
 
-        // Runtime Outbound Security controls (no Designer edits)
+        // Runtime Outbound Security UI (no Designer edits)
+        private Panel _pnlOutboundSecurity = null!;
         private Label _lblOutboundSecurity = null!;
         private RadioButton _rbSecNone = null!;
         private RadioButton _rbSecStartTls = null!;
         private RadioButton _rbSecSmtps = null!;
 
-        // Guards to prevent startup events from clobbering config / creds
         private bool _loading;
         private bool _credentialsDirty;
 
-        // Pending selection until the window handle exists
+        // Pending selections until the window handle exists (NO DEFAULTING; apply config)
         private OutboundSecurityMode? _pendingSecuritySelection;
+        private bool? _pendingAllowAllIpsSelection;
 
         public MainForm()
         {
@@ -38,16 +39,27 @@ namespace SmtpRelay.GUI
             WireCredentialDirtyTracking();
             BuildFooter();
 
-            // Apply any pending security selection once handle exists (safe; no BeginInvoke needed)
+            // Apply pending selections safely once handle exists
             this.HandleCreated += (_, _) =>
             {
+                _loading = true;
+
                 if (_pendingSecuritySelection.HasValue)
                 {
-                    _loading = true;
                     SetSelectedSecurity(_pendingSecuritySelection.Value);
-                    _loading = false;
                     _pendingSecuritySelection = null;
                 }
+
+                if (_pendingAllowAllIpsSelection.HasValue)
+                {
+                    // Reflect config exactly: allowAllIPs true => Allow All, false => Allow Specified
+                    radioAllowAll.Checked = _pendingAllowAllIpsSelection.Value;
+                    radioAllowList.Checked = !_pendingAllowAllIpsSelection.Value;
+                    _pendingAllowAllIpsSelection = null;
+                    ToggleIpField();
+                }
+
+                _loading = false;
             };
 
             LoadConfig();
@@ -79,7 +91,7 @@ namespace SmtpRelay.GUI
             linkRepo.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         }
 
-        /* ───────── Outbound Security UI (runtime, stable positioning) ───────── */
+        /* ───────── Outbound Security UI (container-based; prevents clipping) ───────── */
         private void BuildOutboundSecurityUi()
         {
             // Hide old STARTTLS checkbox (legacy only)
@@ -87,45 +99,57 @@ namespace SmtpRelay.GUI
             chkStartTls.TabStop = false;
 
             // Anchor relative to Port control (stable reference)
-            int baseTop = numPort.Top;
-            int baseLeft = numPort.Right + 20;
+            int panelLeft = numPort.Right + 20;
+            int panelTop = numPort.Top - 2;
+
+            _pnlOutboundSecurity = new Panel
+            {
+                Location = new Point(panelLeft, panelTop),
+                Size = new Size(430, numPort.Height + 8),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left
+            };
 
             _lblOutboundSecurity = new Label
             {
                 AutoSize = true,
                 Text = "Outbound Security:",
-                Location = new Point(baseLeft, baseTop + 3)
+                Location = new Point(0, 4)
             };
 
             _rbSecNone = new RadioButton
             {
                 AutoSize = true,
                 Text = "None",
-                Location = new Point(_lblOutboundSecurity.Right + 10, baseTop)
+                Location = new Point(_lblOutboundSecurity.Right + 10, 2),
+                UseVisualStyleBackColor = true
             };
 
             _rbSecStartTls = new RadioButton
             {
                 AutoSize = true,
                 Text = "STARTTLS",
-                Location = new Point(_rbSecNone.Right + 14, baseTop)
+                Location = new Point(_rbSecNone.Right + 14, 2),
+                UseVisualStyleBackColor = true
             };
 
             _rbSecSmtps = new RadioButton
             {
                 AutoSize = true,
                 Text = "SMTPS (SSL/TLS)",
-                Location = new Point(_rbSecStartTls.Right + 14, baseTop)
+                Location = new Point(_rbSecStartTls.Right + 14, 2),
+                UseVisualStyleBackColor = true
             };
 
             _rbSecNone.CheckedChanged += SecurityRadio_CheckedChanged;
             _rbSecStartTls.CheckedChanged += SecurityRadio_CheckedChanged;
             _rbSecSmtps.CheckedChanged += SecurityRadio_CheckedChanged;
 
-            Controls.Add(_lblOutboundSecurity);
-            Controls.Add(_rbSecNone);
-            Controls.Add(_rbSecStartTls);
-            Controls.Add(_rbSecSmtps);
+            _pnlOutboundSecurity.Controls.Add(_lblOutboundSecurity);
+            _pnlOutboundSecurity.Controls.Add(_rbSecNone);
+            _pnlOutboundSecurity.Controls.Add(_rbSecStartTls);
+            _pnlOutboundSecurity.Controls.Add(_rbSecSmtps);
+
+            Controls.Add(_pnlOutboundSecurity);
         }
 
         private void WireCredentialDirtyTracking()
@@ -149,12 +173,11 @@ namespace SmtpRelay.GUI
 
         private void SetSelectedSecurity(OutboundSecurityMode mode)
         {
-            // Ensure one is always selected visibly
             _rbSecNone.Checked = mode == OutboundSecurityMode.None;
             _rbSecStartTls.Checked = mode == OutboundSecurityMode.StartTls;
             _rbSecSmtps.Checked = mode == OutboundSecurityMode.Smtps;
 
-            // Keep legacy checkbox consistent (hidden)
+            // keep legacy checkbox consistent (hidden)
             chkStartTls.Checked = mode == OutboundSecurityMode.StartTls;
 
             ToggleAuthFields(mode);
@@ -162,7 +185,6 @@ namespace SmtpRelay.GUI
 
         private void ApplySecuritySelectionSafely(OutboundSecurityMode mode)
         {
-            // If handle not created yet, stash selection to apply later
             if (!IsHandleCreated)
             {
                 _pendingSecuritySelection = mode;
@@ -174,18 +196,32 @@ namespace SmtpRelay.GUI
             _loading = false;
         }
 
+        private void ApplyRelayRestrictionSafely(bool allowAllIps)
+        {
+            if (!IsHandleCreated)
+            {
+                _pendingAllowAllIpsSelection = allowAllIps;
+                return;
+            }
+
+            _loading = true;
+            radioAllowAll.Checked = allowAllIps;
+            radioAllowList.Checked = !allowAllIps;
+            ToggleIpField();
+            _loading = false;
+        }
+
         private void SecurityRadio_CheckedChanged(object? sender, EventArgs e)
         {
             if (_loading) return;
 
             var mode = GetSelectedSecurity();
 
-            // Keep hidden checkbox consistent for older code paths
             _loading = true;
             chkStartTls.Checked = mode == OutboundSecurityMode.StartTls;
             _loading = false;
 
-            // Default ports per requirement when USER changes selection
+            // Default ports when USER changes selection
             numPort.Value = mode switch
             {
                 OutboundSecurityMode.None => 25,
@@ -197,7 +233,7 @@ namespace SmtpRelay.GUI
             ToggleAuthFields(mode);
         }
 
-        /* ───────── config load / save (SAFE) ───────── */
+        /* ───────── config load / save (READ CONFIG; NO DEFAULTING) ───────── */
         private void LoadConfig()
         {
             _loading = true;
@@ -213,18 +249,17 @@ namespace SmtpRelay.GUI
             txtUsername.Text = _cfg.Username;
             txtPassword.Text = _cfg.Password;
 
-            radioAllowAll.Checked = _cfg.AllowAllIPs;
-            radioAllowList.Checked = !_cfg.AllowAllIPs;
+            // Reflect config exactly
+            ApplyRelayRestrictionSafely(_cfg.AllowAllIPs);
+
             txtIpList.Lines = _cfg.AllowedIPs.ToArray();
 
             chkEnableLogging.Checked = _cfg.EnableLogging;
             numRetentionDays.Value = _cfg.RetentionDays;
 
-            // After loading from disk, credentials are not "dirty"
             _credentialsDirty = false;
 
             ToggleAuthFields(security);
-            ToggleIpField();
             ToggleLoggingFields();
 
             _loading = false;
@@ -236,12 +271,10 @@ namespace SmtpRelay.GUI
             _cfg.SmartHostPort = (int)numPort.Value;
 
             var mode = GetSelectedSecurity();
-
-            // New + backward compatibility
             _cfg.OutboundSecurity = mode;
             _cfg.UseStartTls = mode == OutboundSecurityMode.StartTls;
 
-            // CRITICAL: never wipe creds unless user actually edited them
+            // never wipe creds unless user actually edited them
             if (_credentialsDirty)
             {
                 _cfg.Username = txtUsername.Text;
@@ -283,9 +316,11 @@ namespace SmtpRelay.GUI
         }
 
         private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e) => ToggleIpField();
+
         private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
 
         private void chkEnableLogging_CheckedChanged(object s, EventArgs e) => ToggleLoggingFields();
+
         private void ToggleLoggingFields()
         {
             numRetentionDays.Enabled = chkEnableLogging.Checked;
