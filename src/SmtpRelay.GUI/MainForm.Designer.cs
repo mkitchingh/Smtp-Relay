@@ -13,7 +13,10 @@ namespace SmtpRelay.GUI
         private TextBox     txtHost;
         private Label       labelPort;
         private NumericUpDown numPort;
-        private CheckBox    chkStartTls;
+        private Label       labelOutboundSecurity;
+        private RadioButton radioSecurityNone;
+        private RadioButton radioSecurityStartTls;
+        private RadioButton radioSecuritySmtps;
         private Label       lblUsername;
         private TextBox     txtUsername;
         private Label       lblPassword;
@@ -50,7 +53,10 @@ namespace SmtpRelay.GUI
             this.txtHost                    = new TextBox();
             this.labelPort                  = new Label();
             this.numPort                    = new NumericUpDown();
-            this.chkStartTls                = new CheckBox();
+            this.labelOutboundSecurity      = new Label();
+            this.radioSecurityNone          = new RadioButton();
+            this.radioSecurityStartTls      = new RadioButton();
+            this.radioSecuritySmtps         = new RadioButton();
             this.lblUsername                = new Label();
             this.txtUsername                = new TextBox();
             this.lblPassword                = new Label();
@@ -109,12 +115,29 @@ namespace SmtpRelay.GUI
             this.numPort.Minimum         = 1;
             this.numPort.Value           = 25;
             this.numPort.Size            = new Size(100, 28);
+// labelOutboundSecurity
+this.labelOutboundSecurity.AutoSize = true;
+this.labelOutboundSecurity.Location = new Point(300, 80);
+this.labelOutboundSecurity.Text     = "Outbound Security:";
 
-            // chkStartTls
-            this.chkStartTls.AutoSize    = true;
-            this.chkStartTls.Location    = new Point(300, 79);
-            this.chkStartTls.Text        = "STARTTLS";
-            this.chkStartTls.CheckedChanged += chkStartTls_CheckedChanged;
+// radioSecurityNone
+this.radioSecurityNone.AutoSize = true;
+this.radioSecurityNone.Location = new Point(440, 79);
+this.radioSecurityNone.Text     = "None";
+this.radioSecurityNone.Checked  = true;
+this.radioSecurityNone.CheckedChanged += SecurityRadio_CheckedChanged;
+
+// radioSecurityStartTls
+this.radioSecurityStartTls.AutoSize = true;
+this.radioSecurityStartTls.Location = new Point(520, 79);
+this.radioSecurityStartTls.Text     = "STARTTLS";
+this.radioSecurityStartTls.CheckedChanged += SecurityRadio_CheckedChanged;
+
+// radioSecuritySmtps
+this.radioSecuritySmtps.AutoSize = true;
+this.radioSecuritySmtps.Location = new Point(620, 79);
+this.radioSecuritySmtps.Text     = "SMTPS (SSL/TLS)";
+this.radioSecuritySmtps.CheckedChanged += SecurityRadio_CheckedChanged;
 
             // lblUsername
             this.lblUsername.AutoSize    = true;
@@ -249,7 +272,7 @@ namespace SmtpRelay.GUI
             this.Controls.AddRange(new Control[]
             {
                 this.labelHost, this.txtHost,
-                this.labelPort, this.numPort, this.chkStartTls,
+                this.labelPort, this.numPort, this.radioSecurityStartTls,
                 this.lblUsername, this.txtUsername,
                 this.lblPassword, this.txtPassword,
                 this.labelRelayRestrictions, this.radioAllowAll, this.radioAllowList,

@@ -38,13 +38,19 @@ namespace SmtpRelay
 
             try
             {
-                Log.Information(
-                    "Connecting to {Host}:{Port} (STARTTLS={Tls})",
-                    cfg.SmartHost, cfg.SmartHostPort, cfg.UseStartTls);
+                var security = cfg.GetEffectiveSecurity();
 
-                var socketOpts = cfg.UseStartTls
-                    ? SecureSocketOptions.StartTls
-                    : SecureSocketOptions.None;
+                Log.Information(
+                    "Connecting to {Host}:{Port} (Security={Security})",
+                    cfg.SmartHost, cfg.SmartHostPort, security);
+
+                var socketOpts = security switch
+                {
+                    OutboundSecurityMode.None     => SecureSocketOptions.None,
+                    OutboundSecurityMode.StartTls => SecureSocketOptions.StartTls,
+                    OutboundSecurityMode.Smtps    => SecureSocketOptions.SslOnConnect,
+                    _                             => SecureSocketOptions.None
+                };
 
                 await client.ConnectAsync(
                         cfg.SmartHost,

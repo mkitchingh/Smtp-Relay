@@ -9,6 +9,13 @@ using NetTools;
 
 namespace SmtpRelay
 {
+    public enum OutboundSecurityMode
+    {
+        None,
+        StartTls,
+        Smtps
+    }
+
     public sealed class Config
     {
         // ───────── shared root:  …\SMTP Relay\  ─────────
@@ -22,6 +29,7 @@ namespace SmtpRelay
         [JsonPropertyName("username")]      public string Username { get; set; } = "";
         [JsonPropertyName("password")]      public string Password { get; set; } = "";
         [JsonPropertyName("useStartTls")]   public bool   UseStartTls { get; set; } = false;
+        [JsonPropertyName("outboundSecurity")] public OutboundSecurityMode? OutboundSecurity { get; set; } = null;
 
         // IP allow-list
         [JsonPropertyName("allowAllIPs")] public bool          AllowAllIPs { get; set; } = true;
@@ -30,6 +38,12 @@ namespace SmtpRelay
         // Logging
         [JsonPropertyName("enableLogging")] public bool EnableLogging { get; set; } = true;
         [JsonPropertyName("retentionDays")] public int  RetentionDays { get; set; } = 14;
+
+        public OutboundSecurityMode GetEffectiveSecurity()
+        {
+            if (OutboundSecurity.HasValue) return OutboundSecurity.Value;
+            return UseStartTls ? OutboundSecurityMode.StartTls : OutboundSecurityMode.None;
+        }
 
         // ───────── helpers ─────────
         public bool IsIPAllowed(string ip)

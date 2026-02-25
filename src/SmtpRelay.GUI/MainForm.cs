@@ -60,7 +60,10 @@ namespace SmtpRelay.GUI
             _cfg = Config.Load();
             txtHost.Text           = _cfg.SmartHost;
             numPort.Value          = _cfg.SmartHostPort;
-            chkStartTls.Checked    = _cfg.UseStartTls;
+            var security = _cfg.GetEffectiveSecurity();
+            radioSecurityNone.Checked     = security == OutboundSecurityMode.None;
+            radioSecurityStartTls.Checked = security == OutboundSecurityMode.StartTls;
+            radioSecuritySmtps.Checked    = security == OutboundSecurityMode.Smtps;
             txtUsername.Text       = _cfg.Username;
             txtPassword.Text       = _cfg.Password;
             radioAllowAll.Checked  = _cfg.AllowAllIPs;
@@ -77,7 +80,12 @@ namespace SmtpRelay.GUI
         {
             _cfg.SmartHost     = txtHost.Text.Trim();
             _cfg.SmartHostPort = (int)numPort.Value;
-            _cfg.UseStartTls   = chkStartTls.Checked;
+            if (radioSecurityNone.Checked)
+                _cfg.OutboundSecurity = OutboundSecurityMode.None;
+            else if (radioSecurityStartTls.Checked)
+                _cfg.OutboundSecurity = OutboundSecurityMode.StartTls;
+            else
+                _cfg.OutboundSecurity = OutboundSecurityMode.Smtps;
             _cfg.Username      = txtUsername.Text;
             _cfg.Password      = txtPassword.Text;
             _cfg.AllowAllIPs   = radioAllowAll.Checked;
@@ -89,13 +97,21 @@ namespace SmtpRelay.GUI
         }
 
         /* ───────── UI toggles (unchanged) ───────── */
-        private void chkStartTls_CheckedChanged(object s, EventArgs e)
+        private void SecurityRadio_CheckedChanged(object s, EventArgs e)
         {
             ToggleAuthFields();
             if (!txtUsername.Enabled) { txtUsername.Clear(); txtPassword.Clear(); }
-            numPort.Value = chkStartTls.Checked ? 587 : 25;
+
+            if (radioSecurityNone.Checked)     numPort.Value = 25;
+            if (radioSecurityStartTls.Checked) numPort.Value = 587;
+            if (radioSecuritySmtps.Checked)    numPort.Value = 465;
         }
-        private void ToggleAuthFields() { txtUsername.Enabled = chkStartTls.Checked; txtPassword.Enabled = chkStartTls.Checked; }
+        private void ToggleAuthFields()
+        {
+            bool enable = radioSecurityStartTls.Checked || radioSecuritySmtps.Checked;
+            txtUsername.Enabled = enable;
+            txtPassword.Enabled = enable;
+        }
         private void radioAllowRestrictions_CheckedChanged(object s, EventArgs e) => ToggleIpField();
         private void ToggleIpField() => txtIpList.Enabled = radioAllowList.Checked;
         private void chkEnableLogging_CheckedChanged(object s, EventArgs e) => ToggleLoggingFields();
