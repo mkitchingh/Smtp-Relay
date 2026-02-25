@@ -32,7 +32,7 @@ namespace SmtpRelay
         {
             try
             {
-                // Convert the SMTPServer buffer into a stream (safe, standard pattern)
+                // Convert the SMTPServer buffer into a stream
                 await using var stream = new MemoryStream();
                 var position = buffer.GetPosition(0);
 
@@ -64,38 +64,21 @@ namespace SmtpRelay
                     socketOptions);
 
                 // Restore MailKit protocol logging (smtp-YYYYMMDD.log) when logging is enabled
-                MailKit.ProtocolLogger? protocolLogger = null;
                 if (_cfg.EnableLogging)
                 {
                     Directory.CreateDirectory(Config.SharedLogDir);
                     var smtpLogPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
-                    protocolLogger = new MailKit.ProtocolLogger(smtpLogPath, true);
+
+                    using var protocolLogger = new MailKit.ProtocolLogger(smtpLogPath, true);
+                    using var client = new SmtpClient(protocolLogger) { Timeout = 15000 };
+
+                    await SendWithClientAsync(client, message, socketOptions, cancellationToken);
                 }
-
-                using (protocolLogger)
-                using var client = protocolLogger != null
-                    ? new SmtpClient(protocolLogger)
-                    : new SmtpClient();
-
-                client.Timeout = 15000;
-
-                await client.ConnectAsync(
-                    _cfg.SmartHost,
-                    _cfg.SmartHostPort,
-                    socketOptions,
-                    cancellationToken);
-
-                // Authenticate only when a username is provided
-                if (!string.IsNullOrWhiteSpace(_cfg.Username))
+                else
                 {
-                    await client.AuthenticateAsync(
-                        _cfg.Username,
-                        _cfg.Password ?? string.Empty,
-                        cancellationToken);
+                    using var client = new SmtpClient { Timeout = 15000 };
+                    await SendWithClientAsync(client, message, socketOptions, cancellationToken);
                 }
-
-                await client.SendAsync(message, cancellationToken);
-                await client.DisconnectAsync(true, cancellationToken);
 
                 return SmtpResponse.Ok;
             }
@@ -104,6 +87,30 @@ namespace SmtpRelay
                 _log.LogError(ex, "Relay failure");
                 return SmtpResponse.TransactionFailed;
             }
+        }
+
+        private async Task SendWithClientAsync(
+            SmtpClient client,
+            MimeMessage message,
+            SecureSocketOptions socketOptions,
+            CancellationToken cancellationToken)
+        {
+            await client.ConnectAsync(
+                _cfg.SmartHost,
+                _cfg.SmartHostPort,
+                socketOptions,
+                cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(_cfg.Username))
+            {
+                await client.AuthenticateAsync(
+                    _cfg.Username,
+                    _cfg.Password ?? string.Empty,
+                    cancellationToken);
+            }
+
+            await client.SendAsync(message, cancellationToken);
+            await client.DisconnectAsync(true, cancellationToken);
         }
     }
 }
