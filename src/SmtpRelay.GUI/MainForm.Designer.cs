@@ -1,5 +1,5 @@
-using System.Drawing;
 using System.ComponentModel;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace SmtpRelay.GUI
@@ -34,10 +34,14 @@ namespace SmtpRelay.GUI
         private Label lblRetentionDays;
         private NumericUpDown numRetentionDays;
 
-        private Button btnSave;
-        private Button btnOpenLogs;
-        private Label lblServiceStatus;
+        // Names that MainForm.cs EXPECTS:
+        private Button btnViewLogs;
+        private Button btnClose;
+        private LinkLabel linkRepo;
+        private Label labelServiceStatus;
         private Label labelServiceNote;
+
+        private Button btnSave;
 
         protected override void Dispose(bool disposing)
         {
@@ -75,21 +79,23 @@ namespace SmtpRelay.GUI
             this.numRetentionDays = new NumericUpDown();
 
             this.btnSave = new Button();
-            this.btnOpenLogs = new Button();
-            this.lblServiceStatus = new Label();
+            this.btnViewLogs = new Button();
+            this.btnClose = new Button();
+            this.linkRepo = new LinkLabel();
+            this.labelServiceStatus = new Label();
             this.labelServiceNote = new Label();
 
             ((ISupportInitialize)(this.numPort)).BeginInit();
             ((ISupportInitialize)(this.numRetentionDays)).BeginInit();
             this.SuspendLayout();
 
-            // SMTP Host
+            // Host
             this.labelHost.AutoSize = true;
             this.labelHost.Location = new Point(30, 30);
-            this.labelHost.Text = "SMTP Host:";
+            this.labelHost.Text = "Smart Host:";
 
             this.txtHost.Location = new Point(180, 27);
-            this.txtHost.Size = new Size(500, 23);
+            this.txtHost.Size = new Size(520, 23);
 
             // Port
             this.labelPort.AutoSize = true;
@@ -100,31 +106,28 @@ namespace SmtpRelay.GUI
             this.numPort.Maximum = 65535;
             this.numPort.Minimum = 1;
             this.numPort.Value = 25;
-            this.numPort.Size = new Size(80, 23);
+            this.numPort.Size = new Size(90, 23);
 
-            // Outbound Security Label
+            // Outbound Security
             this.labelOutboundSecurity.AutoSize = true;
             this.labelOutboundSecurity.Location = new Point(300, 75);
             this.labelOutboundSecurity.Text = "Outbound Security:";
 
-            // None
             this.radioSecurityNone.AutoSize = true;
             this.radioSecurityNone.Location = new Point(440, 73);
             this.radioSecurityNone.Text = "None";
             this.radioSecurityNone.Checked = true;
-            this.radioSecurityNone.CheckedChanged += SecurityRadio_CheckedChanged;
+            this.radioSecurityNone.CheckedChanged += new System.EventHandler(this.SecurityRadio_CheckedChanged);
 
-            // STARTTLS
             this.radioSecurityStartTls.AutoSize = true;
-            this.radioSecurityStartTls.Location = new Point(510, 73);
+            this.radioSecurityStartTls.Location = new Point(515, 73);
             this.radioSecurityStartTls.Text = "STARTTLS";
-            this.radioSecurityStartTls.CheckedChanged += SecurityRadio_CheckedChanged;
+            this.radioSecurityStartTls.CheckedChanged += new System.EventHandler(this.SecurityRadio_CheckedChanged);
 
-            // SMTPS
             this.radioSecuritySmtps.AutoSize = true;
-            this.radioSecuritySmtps.Location = new Point(600, 73);
+            this.radioSecuritySmtps.Location = new Point(610, 73);
             this.radioSecuritySmtps.Text = "SMTPS (SSL/TLS)";
-            this.radioSecuritySmtps.CheckedChanged += SecurityRadio_CheckedChanged;
+            this.radioSecuritySmtps.CheckedChanged += new System.EventHandler(this.SecurityRadio_CheckedChanged);
 
             // Username
             this.lblUsername.AutoSize = true;
@@ -132,7 +135,7 @@ namespace SmtpRelay.GUI
             this.lblUsername.Text = "Username:";
 
             this.txtUsername.Location = new Point(180, 117);
-            this.txtUsername.Size = new Size(400, 23);
+            this.txtUsername.Size = new Size(420, 23);
 
             // Password
             this.lblPassword.AutoSize = true;
@@ -140,32 +143,32 @@ namespace SmtpRelay.GUI
             this.lblPassword.Text = "Password:";
 
             this.txtPassword.Location = new Point(180, 152);
-            this.txtPassword.Size = new Size(400, 23);
+            this.txtPassword.Size = new Size(420, 23);
             this.txtPassword.PasswordChar = '*';
 
-            // Relay Restrictions
+            // Relay restrictions
             this.labelRelayRestrictions.AutoSize = true;
-            this.labelRelayRestrictions.Location = new Point(30, 200);
+            this.labelRelayRestrictions.Location = new Point(30, 205);
             this.labelRelayRestrictions.Text = "Relay Restrictions:";
 
             this.radioAllowAll.AutoSize = true;
-            this.radioAllowAll.Location = new Point(180, 198);
-            this.radioAllowAll.Text = "Allow All";
-            this.radioAllowAll.CheckedChanged += radioAllowRestrictions_CheckedChanged;
+            this.radioAllowAll.Location = new Point(180, 203);
+            this.radioAllowAll.Text = "Allow all IPs";
+            this.radioAllowAll.CheckedChanged += new System.EventHandler(this.radioAllowRestrictions_CheckedChanged);
 
             this.radioAllowList.AutoSize = true;
-            this.radioAllowList.Location = new Point(280, 198);
-            this.radioAllowList.Text = "Allow Specified";
-            this.radioAllowList.CheckedChanged += radioAllowRestrictions_CheckedChanged;
+            this.radioAllowList.Location = new Point(320, 203);
+            this.radioAllowList.Text = "Allow list only";
+            this.radioAllowList.CheckedChanged += new System.EventHandler(this.radioAllowRestrictions_CheckedChanged);
 
-            this.txtIpList.Location = new Point(180, 230);
+            this.txtIpList.Location = new Point(180, 235);
             this.txtIpList.Multiline = true;
             this.txtIpList.ScrollBars = ScrollBars.Vertical;
-            this.txtIpList.Size = new Size(500, 100);
+            this.txtIpList.Size = new Size(520, 95);
 
             this.labelIpExample.AutoSize = true;
             this.labelIpExample.Location = new Point(180, 335);
-            this.labelIpExample.Text = "e.g. 127.0.0.1, 10.0.0.0/24, ::1";
+            this.labelIpExample.Text = "Example: 10.0.0.0/24, 192.168.1.10-192.168.1.20";
 
             // Logging
             this.lblLogging.AutoSize = true;
@@ -174,40 +177,53 @@ namespace SmtpRelay.GUI
 
             this.chkEnableLogging.AutoSize = true;
             this.chkEnableLogging.Location = new Point(180, 378);
-            this.chkEnableLogging.Text = "Enable";
+            this.chkEnableLogging.Text = "Enable Logging";
+            this.chkEnableLogging.CheckedChanged += new System.EventHandler(this.chkEnableLogging_CheckedChanged);
 
             this.lblRetentionDays.AutoSize = true;
-            this.lblRetentionDays.Location = new Point(260, 380);
-            this.lblRetentionDays.Text = "Days Kept:";
+            this.lblRetentionDays.Location = new Point(30, 415);
+            this.lblRetentionDays.Text = "Retention (days):";
 
-            this.numRetentionDays.Location = new Point(330, 377);
+            this.numRetentionDays.Location = new Point(180, 412);
             this.numRetentionDays.Minimum = 1;
             this.numRetentionDays.Maximum = 365;
             this.numRetentionDays.Value = 14;
-            this.numRetentionDays.Size = new Size(60, 23);
+            this.numRetentionDays.Size = new Size(90, 23);
 
             // Buttons
-            this.btnSave.Location = new Point(180, 430);
+            this.btnSave.Location = new Point(30, 460);
             this.btnSave.Size = new Size(120, 35);
             this.btnSave.Text = "Save";
-            this.btnSave.Click += btnSave_Click;
+            this.btnSave.Click += new System.EventHandler(this.btnSave_Click);
 
-            this.btnOpenLogs.Location = new Point(320, 430);
-            this.btnOpenLogs.Size = new Size(120, 35);
-            this.btnOpenLogs.Text = "View Logs";
-            this.btnOpenLogs.Click += btnOpenLogs_Click;
+            this.btnViewLogs.Location = new Point(170, 460);
+            this.btnViewLogs.Size = new Size(120, 35);
+            this.btnViewLogs.Text = "View Logs";
+            this.btnViewLogs.Click += new System.EventHandler(this.btnViewLogs_Click);
 
-            // Service Status
-            this.lblServiceStatus.AutoSize = true;
-            this.lblServiceStatus.Location = new Point(30, 485);
-            this.lblServiceStatus.Text = "Service Status:";
+            this.btnClose.Location = new Point(310, 460);
+            this.btnClose.Size = new Size(120, 35);
+            this.btnClose.Text = "Close";
+            this.btnClose.Click += new System.EventHandler(this.btnClose_Click);
+
+            // Service status + note
+            this.labelServiceStatus.AutoSize = true;
+            this.labelServiceStatus.Location = new Point(30, 510);
+            this.labelServiceStatus.Text = "Service Status:";
 
             this.labelServiceNote.AutoSize = true;
-            this.labelServiceNote.Location = new Point(180, 485);
-            this.labelServiceNote.Text = "Service will continue to run";
+            this.labelServiceNote.Location = new Point(30, 535);
+            this.labelServiceNote.Text = "Service will continue running even after closing this application.";
+
+            // GitHub link
+            this.linkRepo.AutoSize = true;
+            this.linkRepo.Location = new Point(30, 560);
+            this.linkRepo.Text = "View on GitHub";
+            this.linkRepo.LinkClicked += new LinkLabelLinkClickedEventHandler(this.linkRepo_LinkClicked);
 
             // Form
-            this.ClientSize = new Size(750, 520);
+            this.AutoScaleMode = AutoScaleMode.Font;
+            this.ClientSize = new Size(760, 610);
             this.Text = "SMTP Relay Configuration";
 
             this.Controls.Add(this.labelHost);
@@ -237,9 +253,12 @@ namespace SmtpRelay.GUI
             this.Controls.Add(this.numRetentionDays);
 
             this.Controls.Add(this.btnSave);
-            this.Controls.Add(this.btnOpenLogs);
-            this.Controls.Add(this.lblServiceStatus);
+            this.Controls.Add(this.btnViewLogs);
+            this.Controls.Add(this.btnClose);
+
+            this.Controls.Add(this.labelServiceStatus);
             this.Controls.Add(this.labelServiceNote);
+            this.Controls.Add(this.linkRepo);
 
             ((ISupportInitialize)(this.numPort)).EndInit();
             ((ISupportInitialize)(this.numRetentionDays)).EndInit();
