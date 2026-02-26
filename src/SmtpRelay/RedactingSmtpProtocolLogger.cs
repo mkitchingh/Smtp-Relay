@@ -22,6 +22,9 @@ namespace SmtpRelay
         private bool _pastHeaderBlankLine;
         private bool _redactionLineWritten;
 
+        // MailKit requires this on newer versions; using the default detector is safest.
+        public IAuthenticationSecretDetector AuthenticationSecretDetector { get; }
+
         public RedactingSmtpProtocolLogger(string filePath, bool append = true)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
@@ -33,6 +36,8 @@ namespace SmtpRelay
                 FileShare.ReadWrite);
 
             _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+
+            AuthenticationSecretDetector = new AuthenticationSecretDetector();
         }
 
         public void LogConnect(Uri uri)
@@ -63,7 +68,6 @@ namespace SmtpRelay
 
         private void ProcessChunk(string chunk, bool isClient)
         {
-            // Normalize line parsing across chunks.
             var sb = isClient ? _clientLineBuffer : _serverLineBuffer;
             sb.Append(chunk);
 
@@ -83,12 +87,11 @@ namespace SmtpRelay
 
         private void HandleLine(string rawLine, bool isClient)
         {
-            // Trim only CRLF for analysis; keep the original direction prefix formatting.
             var line = rawLine.TrimEnd('\r', '\n');
 
             if (isClient)
             {
-                // Detect start of DATA command (client side)
+                // Detect DATA command
                 if (!_inData && line.Equals("DATA", StringComparison.OrdinalIgnoreCase))
                 {
                     _sawDataCommand = true;
@@ -96,10 +99,9 @@ namespace SmtpRelay
                     return;
                 }
 
-                // During DATA, redact body after the blank line that separates headers and body.
                 if (_inData)
                 {
-                    // Dot-terminator ends DATA
+                    // End of DATA
                     if (line == ".")
                     {
                         WriteLine("C: .");
@@ -107,7 +109,7 @@ namespace SmtpRelay
                         return;
                     }
 
-                    // Still in headers until the blank line
+                    // Still in headers until blank line
                     if (!_pastHeaderBlankLine)
                     {
                         WriteLine($"C: {line}");
@@ -125,20 +127,19 @@ namespace SmtpRelay
                         _redactionLineWritten = true;
                     }
 
-                    // Skip logging body lines
                     return;
                 }
 
-                // Normal client logging (non-DATA)
+                // Normal client logging
                 WriteLine($"C: {line}");
                 return;
             }
             else
             {
-                // Server line handling (needed to detect 354 which enters DATA mode)
+                // Normal server logging
                 WriteLine($"S: {line}");
 
-                // Enter DATA mode when we see server 354 after DATA
+                // Enter DATA mode when server returns 354 after DATA
                 if (_sawDataCommand && !_inData && line.StartsWith("354", StringComparison.Ordinal))
                 {
                     EnterDataMode();
