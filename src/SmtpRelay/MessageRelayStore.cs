@@ -70,14 +70,12 @@ namespace SmtpRelay
                     Directory.CreateDirectory(Config.SharedLogDir);
                     var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
 
-                    // IMPORTANT: Do NOT dispose the protocol logger separately.
-                    // MailKit's SmtpClient may dispose it when the client is disposed.
+                    // IMPORTANT: do not open/append to the file separately.
+                    // The protocol logger owns the file handle for the duration of the SMTP session.
                     var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
 
                     using var client = new SmtpClient(proto) { Timeout = 15000 };
                     await SendWithClientAsync(client, message, socketOptions, cancellationToken);
-
-                    File.AppendAllText(protoPath, Environment.NewLine + "-------------------------------------" + Environment.NewLine);
                 }
                 else
                 {

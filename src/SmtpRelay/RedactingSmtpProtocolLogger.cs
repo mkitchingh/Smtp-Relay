@@ -47,7 +47,11 @@ namespace SmtpRelay
             _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
         }
 
-        public void LogConnect(Uri uri) => WriteLine($"CONNECT {uri}");
+        public void LogConnect(Uri uri)
+        {
+            WriteLine("-------------------------------------");
+            WriteLine($"CONNECT {uri}");
+        }
 
         public void LogClient(byte[] buffer, int offset, int count)
         {
@@ -63,7 +67,11 @@ namespace SmtpRelay
             ProcessChunk(text, isClient: false);
         }
 
-        public void LogDisconnect(Uri uri) => WriteLine($"DISCONNECT {uri}");
+        public void LogDisconnect(Uri uri)
+        {
+            WriteLine($"DISCONNECT {uri}");
+            WriteLine("-------------------------------------");
+        }
 
         private void ProcessChunk(string chunk, bool isClient)
         {
@@ -174,23 +182,8 @@ namespace SmtpRelay
                 if (_disposed) return;
                 _disposed = true;
 
-                try
-                {
-                    _writer?.Flush();
-                }
-                catch
-                {
-                    // ignore: may already be closed by MailKit
-                }
-
-                try
-                {
-                    _writer?.Dispose();
-                }
-                catch
-                {
-                    // ignore: idempotent dispose
-                }
+                try { _writer?.Flush(); } catch { }
+                try { _writer?.Dispose(); } catch { }
 
                 _writer = null;
             }
