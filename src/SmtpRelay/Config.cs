@@ -17,19 +17,16 @@ namespace SmtpRelay
 
     public class Config
     {
-        // Shared install locations: parent folder of exe (gui\ and service\ share config/logs)
         public static readonly string SharedBaseDir;
         public static readonly string SharedConfigPath;
         public static readonly string SharedLogDir;
 
         static Config()
         {
-            var baseDir = AppContext.BaseDirectory
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
+            var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var parent = Directory.GetParent(baseDir);
-            SharedBaseDir = parent != null ? parent.FullName : AppContext.BaseDirectory;
 
+            SharedBaseDir = parent != null ? parent.FullName : AppContext.BaseDirectory;
             SharedConfigPath = Path.Combine(SharedBaseDir, "config.json");
             SharedLogDir = Path.Combine(SharedBaseDir, "logs");
         }
@@ -40,10 +37,10 @@ namespace SmtpRelay
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
 
-        // Legacy flag (existing installs)
+        // Legacy
         public bool UseStartTls { get; set; } = false;
 
-        // New explicit mode (optional; backward compatible)
+        // New explicit mode (optional)
         public OutboundSecurityMode? OutboundSecurity { get; set; } = null;
 
         public bool AllowAllIPs { get; set; } = true;
@@ -75,7 +72,6 @@ namespace SmtpRelay
         {
             if (AllowAllIPs) return true;
             if (remoteIp == null) return false;
-
             if (AllowedIPs.Count == 0) return false;
 
             foreach (var raw in AllowedIPs)
@@ -198,17 +194,14 @@ namespace SmtpRelay
             };
             opts.Converters.Add(new JsonStringEnumConverter());
 
-            var cfg = JsonSerializer.Deserialize<Config>(json, opts) ?? new Config();
+            var deserialized = JsonSerializer.Deserialize<Config>(json, opts);
+            var cfg = deserialized ?? new Config();
 
+            if (cfg.SmartHost == null) cfg.SmartHost = "";
+            if (cfg.Username == null) cfg.Username = "";
+            if (cfg.Password == null) cfg.Password = "";
+            if (cfg.AllowedIPs == null) cfg.AllowedIPs = new List<string>();
             if (cfg.SmartHostPort <= 0) cfg.SmartHostPort = 25;
-
-            // Force non-null list (prevents nullability warnings and runtime issues)
-            cfg.AllowedIPs = cfg.AllowedIPs ?? new List<string>();
-
-            // Force non-null strings (defensive)
-            cfg.SmartHost = cfg.SmartHost ?? "";
-            cfg.Username = cfg.Username ?? "";
-            cfg.Password = cfg.Password ?? "";
 
             return cfg;
         }

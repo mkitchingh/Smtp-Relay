@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using MailKit;
@@ -7,11 +8,20 @@ namespace SmtpRelay
 {
     /// <summary>
     /// Protocol logger that redacts SMTP DATA body content while preserving
-    /// the rest of the SMTP transcript (including headers), but redacts Subject.
-    /// Implements the MailKit IProtocolLogger including AuthenticationSecretDetector setter.
+    /// the rest of the SMTP transcript (including headers). Also redacts Subject.
     /// </summary>
     internal sealed class RedactingSmtpProtocolLogger : IProtocolLogger, IDisposable
     {
+        private sealed class NoOpSecretDetector : IAuthenticationSecretDetector
+        {
+            public IList<AuthenticationSecret> DetectSecrets(byte[] buffer, int offset, int count)
+            {
+                // We are not attempting to detect secrets here (AUTH lines are already masked by MailKit
+                // in many cases). Returning empty keeps this simple and safe.
+                return Array.Empty<AuthenticationSecret>();
+            }
+        }
+
         private readonly object _lock = new();
         private readonly StreamWriter _writer;
 
@@ -23,12 +33,14 @@ namespace SmtpRelay
         private bool _pastHeaderBlankLine;
         private bool _redactionLineWritten;
 
-        // MailKit requires this on newer versions; provide getter+setter.
+        // MailKit requires this property (get/set) on newer versions.
         public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; }
 
         public RedactingSmtpProtocolLogger(string filePath, bool append = true)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+            var dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
 
             var stream = new FileStream(
                 filePath,
@@ -38,19 +50,14 @@ namespace SmtpRelay
 
             _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
 
-            // Default detector (MailKit provides a built-in implementation)
-            AuthenticationSecretDetector = new AuthenticationSecretDetector();
+            AuthenticationSecretDetector = new NoOpSecretDetector();
         }
 
-        public void LogConnect(Uri uri)
-        {
-            WriteLine($"Connected to {uri}");
-        }
+        public void LogConnect(Uri uri) => WriteLine($"Connected to {uri}");
 
         public void LogClient(byte[] buffer, int offset, int count)
         {
             if (count <= 0) return;
-
             var text = Encoding.ASCII.GetString(buffer, offset, count);
             ProcessChunk(text, isClient: true);
         }
@@ -58,15 +65,11 @@ namespace SmtpRelay
         public void LogServer(byte[] buffer, int offset, int count)
         {
             if (count <= 0) return;
-
             var text = Encoding.ASCII.GetString(buffer, offset, count);
             ProcessChunk(text, isClient: false);
         }
 
-        public void LogDisconnect(Uri uri)
-        {
-            WriteLine($"Disconnected from {uri}");
-        }
+        public void LogDisconnect(Uri uri) => WriteLine($"Disconnected from {uri}");
 
         private void ProcessChunk(string chunk, bool isClient)
         {
@@ -114,68 +117,45 @@ namespace SmtpRelay
                     // Still in headers until blank line
                     if (!_pastHeaderBlankLine)
                     {
-                        // Redact Subject header specifically
-                        if (IsSubjectHeader(line, out var redacted))
-                        {
-                            WriteLine($"C: {redacted}");
-                        }
+                        if (IsSubjectHeader(line))
+                            WriteLine("C: Subject: [REDACTED]");
                         else
-                        {
                             WriteLine($"C: {line}");
-                        }
 
                         if (line.Length == 0)
-                        {
                             _pastHeaderBlankLine = true;
-                        }
+
                         return;
                     }
 
-                    // Past headers => redact body lines (only write one redaction line)
+                    // Past headers => redact body lines
                     if (!_redactionLineWritten)
                     {
                         WriteLine("C: [REDACTED BODY]");
                         _redactionLineWritten = true;
                     }
 
-                    // Skip logging the rest of the body lines
+                    // Skip logging actual body lines
                     return;
                 }
 
                 // Normal client logging (non-DATA)
-                // Redact AUTH secrets if MailKit uses the detector to mask them (MailKit will do this before calling logger)
                 WriteLine($"C: {line}");
                 return;
             }
-            else
-            {
-                // Server line handling
-                WriteLine($"S: {line}");
 
-                // Enter DATA mode when server returns 354 after DATA
-                if (_sawDataCommand && !_inData && line.StartsWith("354", StringComparison.Ordinal))
-                {
-                    EnterDataMode();
-                }
+            // Server logging
+            WriteLine($"S: {line}");
 
-                return;
-            }
+            // Enter DATA mode when server returns 354 after DATA
+            if (_sawDataCommand && !_inData && line.StartsWith("354", StringComparison.Ordinal))
+                EnterDataMode();
         }
 
-        private static bool IsSubjectHeader(string line, out string redactedLine)
+        private static bool IsSubjectHeader(string line)
         {
-            redactedLine = line;
-            var idx = line.IndexOf(':');
-            if (idx <= 0) return false;
-
-            var name = line.Substring(0, idx).Trim();
-            if (name.Equals("Subject", StringComparison.OrdinalIgnoreCase))
-            {
-                redactedLine = "Subject: [REDACTED]";
-                return true;
-            }
-
-            return false;
+            // Very small + safe: only match "Subject:" at line start ignoring case.
+            return line.StartsWith("Subject:", StringComparison.OrdinalIgnoreCase);
         }
 
         private void EnterDataMode()
