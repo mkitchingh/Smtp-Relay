@@ -1,5 +1,8 @@
 using System;
+using System.Buffers;
 using System.IO;
+using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
@@ -13,12 +16,12 @@ using SmtpResponse = SmtpServer.Protocol.SmtpResponse;
 
 namespace SmtpRelay
 {
-    public class MessageRelayStore : IMessageStore
+    public sealed class MessageRelayStore : IMessageStore
     {
         private readonly Config _cfg;
-        private readonly ILogger<MessageRelayStore> _log;
+        private readonly ILogger _log;
 
-        public MessageRelayStore(Config cfg, ILogger<MessageRelayStore> log)
+        public MessageRelayStore(Config cfg, ILogger log)
         {
             _cfg = cfg;
             _log = log;
@@ -27,25 +30,31 @@ namespace SmtpRelay
         public async Task<SmtpResponse> SaveAsync(
             ISessionContext context,
             IMessageTransaction transaction,
-            System.Buffers.ReadOnlySequence<byte> buffer,
+            ReadOnlySequence<byte> buffer,
             CancellationToken cancellationToken)
         {
+            // ---------- client IP ----------
+            var clientIp = GetClientIp(context) ?? "unknown";
+
+            // ---------- relay restriction ----------
+            if (!_cfg.IsIPAllowed(clientIp))
+            {
+                _log.LogWarning("Rejected relay request from {IP}", clientIp);
+                return new SmtpResponse(SmtpReplyCode.MailboxUnavailable, "Relay access denied");
+            }
+
             try
             {
+                // ---------- rebuild MimeMessage ----------
                 await using var stream = new MemoryStream();
-                var position = buffer.GetPosition(0);
-
-                while (buffer.TryGet(ref position, out var memory))
-                {
-                    await stream.WriteAsync(memory, cancellationToken);
-                }
+                foreach (var seg in buffer)
+                    stream.Write(seg.Span);
 
                 stream.Position = 0;
-
                 var message = await MimeMessage.LoadAsync(stream, cancellationToken);
 
+                // ---------- outbound security ----------
                 var mode = _cfg.GetEffectiveSecurity();
-
                 var socketOptions = mode switch
                 {
                     OutboundSecurityMode.Smtps    => SecureSocketOptions.SslOnConnect,
@@ -54,20 +63,23 @@ namespace SmtpRelay
                 };
 
                 _log.LogInformation(
-                    "Connecting to {Host}:{Port} (Security={Security}, SocketOptions={Options})",
+                    "Connecting to {Host}:{Port} (Security=\"{Security}\", SocketOptions=\"{Options}\")",
                     _cfg.SmartHost,
                     _cfg.SmartHostPort,
                     mode,
                     socketOptions);
 
+                // ---------- protocol log path ----------
+                if (_cfg.EnableLogging)
+                    Directory.CreateDirectory(Config.SharedLogDir);
+
+                var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+
+                // ---------- send via smarthost ----------
                 if (_cfg.EnableLogging)
                 {
-                    Directory.CreateDirectory(Config.SharedLogDir);
-                    var smtpLogPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
-
-                    using var protocolLogger = new RedactingSmtpProtocolLogger(smtpLogPath, append: true);
-                    using var client = new SmtpClient(protocolLogger) { Timeout = 15000 };
-
+                    using var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
+                    using var client = new SmtpClient(proto) { Timeout = 15000 };
                     await SendWithClientAsync(client, message, socketOptions, cancellationToken);
                 }
                 else
@@ -76,6 +88,11 @@ namespace SmtpRelay
                     await SendWithClientAsync(client, message, socketOptions, cancellationToken);
                 }
 
+                // delimiter between sessions (keeps file readable)
+                if (_cfg.EnableLogging)
+                    File.AppendAllText(protoPath, Environment.NewLine + "-------------------------------------" + Environment.NewLine);
+
+                _log.LogInformation("Relayed mail from {IP}", clientIp);
                 return SmtpResponse.Ok;
             }
             catch (Exception ex)
@@ -91,22 +108,49 @@ namespace SmtpRelay
             SecureSocketOptions socketOptions,
             CancellationToken cancellationToken)
         {
-            await client.ConnectAsync(
-                _cfg.SmartHost,
-                _cfg.SmartHostPort,
-                socketOptions,
-                cancellationToken);
+            await client.ConnectAsync(_cfg.SmartHost, _cfg.SmartHostPort, socketOptions, cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
-            {
-                await client.AuthenticateAsync(
-                    _cfg.Username,
-                    _cfg.Password ?? string.Empty,
-                    cancellationToken);
-            }
+                await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
             await client.SendAsync(message, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
+        }
+
+        // ---------- robust client-IP extractor (from main-branch approach) ----------
+        private static string? GetClientIp(ISessionContext ctx)
+        {
+            static bool IsReal(IPEndPoint ep) =>
+                !ep.Address.Equals(IPAddress.Any) && !ep.Address.Equals(IPAddress.IPv6Any);
+
+            const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            foreach (var p in ctx.GetType().GetProperties(BF))
+            {
+                if (typeof(EndPoint).IsAssignableFrom(p.PropertyType) &&
+                    p.GetValue(ctx) is IPEndPoint ep && IsReal(ep))
+                    return ep.Address.ToString();
+            }
+
+            if (ctx.Properties.TryGetValue("RemoteEndPoint", out var o1) && o1 is IPEndPoint ep1 && IsReal(ep1))
+                return ep1.Address.ToString();
+
+            if (ctx.Properties.TryGetValue("SessionRemoteEndPoint", out var o2) && o2 is IPEndPoint ep2 && IsReal(ep2))
+                return ep2.Address.ToString();
+
+            foreach (var v in ctx.Properties.Values)
+            {
+                if (v is IPEndPoint ep3 && IsReal(ep3))
+                    return ep3.Address.ToString();
+
+                if (v is EndPoint ep4 && ep4 is IPEndPoint ipEp && IsReal(ipEp))
+                    return ipEp.Address.ToString();
+
+                if (v is string s && IPAddress.TryParse(s, out var ip) && IsReal(new IPEndPoint(ip, 0)))
+                    return ip.ToString();
+            }
+
+            return null;
         }
     }
 }

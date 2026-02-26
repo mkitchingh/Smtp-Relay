@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -6,35 +7,26 @@ using MailKit;
 
 namespace SmtpRelay
 {
-    /// <summary>
-    /// Protocol logger that redacts SMTP DATA body content while preserving
-    /// the rest of the SMTP transcript (including headers). Also redacts Subject.
-    /// </summary>
     internal sealed class RedactingSmtpProtocolLogger : IProtocolLogger, IDisposable
     {
-        private sealed class NoOpSecretDetector : IAuthenticationSecretDetector
+        private sealed class DummyDetector : IAuthenticationSecretDetector
         {
-            public IList<AuthenticationSecret> DetectSecrets(byte[] buffer, int offset, int count)
-            {
-                // We are not attempting to detect secrets here (AUTH lines are already masked by MailKit
-                // in many cases). Returning empty keeps this simple and safe.
-                return Array.Empty<AuthenticationSecret>();
-            }
+            public bool IsSecret(string text) => false;
+            public IList DetectSecrets(byte[] b, int o, int c) => new List<object>();
         }
 
         private readonly object _lock = new();
         private readonly StreamWriter _writer;
 
-        private readonly StringBuilder _clientLineBuffer = new();
-        private readonly StringBuilder _serverLineBuffer = new();
+        private readonly StringBuilder _clientBuf = new();
+        private readonly StringBuilder _serverBuf = new();
 
-        private bool _sawDataCommand;
+        private bool _sawData;
         private bool _inData;
-        private bool _pastHeaderBlankLine;
-        private bool _redactionLineWritten;
+        private bool _pastBlankLine;
+        private bool _wroteBodyRedaction;
 
-        // MailKit requires this property (get/set) on newer versions.
-        public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; }
+        public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; } = new DummyDetector();
 
         public RedactingSmtpProtocolLogger(string filePath, bool append = true)
         {
@@ -49,11 +41,9 @@ namespace SmtpRelay
                 FileShare.ReadWrite);
 
             _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-
-            AuthenticationSecretDetector = new NoOpSecretDetector();
         }
 
-        public void LogConnect(Uri uri) => WriteLine($"Connected to {uri}");
+        public void LogConnect(Uri uri) => WriteLine($"CONNECT {uri}");
 
         public void LogClient(byte[] buffer, int offset, int count)
         {
@@ -69,11 +59,9 @@ namespace SmtpRelay
             ProcessChunk(text, isClient: false);
         }
 
-        public void LogDisconnect(Uri uri) => WriteLine($"Disconnected from {uri}");
-
         private void ProcessChunk(string chunk, bool isClient)
         {
-            var sb = isClient ? _clientLineBuffer : _serverLineBuffer;
+            var sb = isClient ? _clientBuf : _serverBuf;
             sb.Append(chunk);
 
             while (true)
@@ -96,89 +84,79 @@ namespace SmtpRelay
 
             if (isClient)
             {
-                // Detect DATA command
                 if (!_inData && line.Equals("DATA", StringComparison.OrdinalIgnoreCase))
                 {
-                    _sawDataCommand = true;
-                    WriteLine($"C: {line}");
+                    _sawData = true;
+                    WriteLine("C: DATA");
                     return;
                 }
 
                 if (_inData)
                 {
-                    // End of DATA
                     if (line == ".")
                     {
                         WriteLine("C: .");
-                        ExitDataMode();
+                        ExitData();
                         return;
                     }
 
-                    // Still in headers until blank line
-                    if (!_pastHeaderBlankLine)
+                    // headers until blank line
+                    if (!_pastBlankLine)
                     {
-                        if (IsSubjectHeader(line))
+                        if (line.StartsWith("Subject:", StringComparison.OrdinalIgnoreCase))
                             WriteLine("C: Subject: [REDACTED]");
                         else
-                            WriteLine($"C: {line}");
+                            WriteLine("C: " + line);
 
                         if (line.Length == 0)
-                            _pastHeaderBlankLine = true;
+                            _pastBlankLine = true;
 
                         return;
                     }
 
-                    // Past headers => redact body lines
-                    if (!_redactionLineWritten)
+                    // body redaction
+                    if (!_wroteBodyRedaction)
                     {
                         WriteLine("C: [REDACTED BODY]");
-                        _redactionLineWritten = true;
+                        _wroteBodyRedaction = true;
                     }
 
-                    // Skip logging actual body lines
                     return;
                 }
 
-                // Normal client logging (non-DATA)
-                WriteLine($"C: {line}");
+                WriteLine("C: " + line);
                 return;
             }
 
-            // Server logging
-            WriteLine($"S: {line}");
+            // server
+            WriteLine("S: " + line);
 
-            // Enter DATA mode when server returns 354 after DATA
-            if (_sawDataCommand && !_inData && line.StartsWith("354", StringComparison.Ordinal))
-                EnterDataMode();
+            // enter DATA mode after server 354
+            if (_sawData && !_inData && line.StartsWith("354", StringComparison.Ordinal))
+                EnterData();
         }
 
-        private static bool IsSubjectHeader(string line)
-        {
-            // Very small + safe: only match "Subject:" at line start ignoring case.
-            return line.StartsWith("Subject:", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private void EnterDataMode()
+        private void EnterData()
         {
             _inData = true;
-            _sawDataCommand = false;
-            _pastHeaderBlankLine = false;
-            _redactionLineWritten = false;
+            _sawData = false;
+            _pastBlankLine = false;
+            _wroteBodyRedaction = false;
         }
 
-        private void ExitDataMode()
+        private void ExitData()
         {
             _inData = false;
-            _sawDataCommand = false;
-            _pastHeaderBlankLine = false;
-            _redactionLineWritten = false;
+            _sawData = false;
+            _pastBlankLine = false;
+            _wroteBodyRedaction = false;
         }
 
-        private void WriteLine(string line)
+        private void WriteLine(string msg)
         {
             lock (_lock)
             {
-                _writer.WriteLine(line);
+                _writer.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             }
         }
 
@@ -186,6 +164,7 @@ namespace SmtpRelay
         {
             lock (_lock)
             {
+                _writer.Flush();
                 _writer.Dispose();
             }
         }
