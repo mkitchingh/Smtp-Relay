@@ -10,4 +10,5 @@ https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5/SmtpRelaySetup.e
 
 **You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.  
 
-<img width="1360" height="1117" alt="image" src="https://github.com/user-attachments/assets/716ae0a9-dd57-4b20-8496-46f82d45dea6" />
+<img width="1536" height="1024" alt="SMTP-Pic" src="https://github.com/user-attachments/assets/d6ff8193-da70-405f-ae94-c4d3d57f67c4" />
+
