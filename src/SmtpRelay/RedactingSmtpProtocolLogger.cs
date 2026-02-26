@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -11,8 +10,14 @@ namespace SmtpRelay
     {
         private sealed class DummyDetector : IAuthenticationSecretDetector
         {
+            // Some MailKit versions call this; harmless to implement.
             public bool IsSecret(string text) => false;
-            public IList DetectSecrets(byte[] b, int o, int c) => new List<object>();
+
+            public IList<AuthenticationSecret> DetectSecrets(byte[] buffer, int offset, int count)
+            {
+                // No detection (we're redacting DATA body/Subject ourselves).
+                return Array.Empty<AuthenticationSecret>();
+            }
         }
 
         private readonly object _lock = new();
@@ -26,6 +31,7 @@ namespace SmtpRelay
         private bool _pastBlankLine;
         private bool _wroteBodyRedaction;
 
+        // MailKit requires get/set on newer versions.
         public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; } = new DummyDetector();
 
         public RedactingSmtpProtocolLogger(string filePath, bool append = true)
@@ -58,6 +64,8 @@ namespace SmtpRelay
             var text = Encoding.ASCII.GetString(buffer, offset, count);
             ProcessChunk(text, isClient: false);
         }
+
+        public void LogDisconnect(Uri uri) => WriteLine($"DISCONNECT {uri}");
 
         private void ProcessChunk(string chunk, bool isClient)
         {
