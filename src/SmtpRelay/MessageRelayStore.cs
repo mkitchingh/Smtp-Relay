@@ -33,10 +33,8 @@ namespace SmtpRelay
             ReadOnlySequence<byte> buffer,
             CancellationToken cancellationToken)
         {
-            // ---------- client IP ----------
             var clientIp = GetClientIp(context) ?? "unknown";
 
-            // ---------- relay restriction ----------
             if (!_cfg.IsIPAllowed(clientIp))
             {
                 _log.LogWarning("Rejected relay request from {IP}", clientIp);
@@ -45,7 +43,6 @@ namespace SmtpRelay
 
             try
             {
-                // ---------- rebuild MimeMessage ----------
                 await using var stream = new MemoryStream();
                 foreach (var seg in buffer)
                     stream.Write(seg.Span);
@@ -53,7 +50,6 @@ namespace SmtpRelay
                 stream.Position = 0;
                 var message = await MimeMessage.LoadAsync(stream, cancellationToken);
 
-                // ---------- outbound security ----------
                 var mode = _cfg.GetEffectiveSecurity();
                 var socketOptions = mode switch
                 {
@@ -69,28 +65,25 @@ namespace SmtpRelay
                     mode,
                     socketOptions);
 
-                // ---------- protocol log path ----------
-                if (_cfg.EnableLogging)
-                    Directory.CreateDirectory(Config.SharedLogDir);
-
-                var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
-
-                // ---------- send via smarthost ----------
                 if (_cfg.EnableLogging)
                 {
-                    using var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
+                    Directory.CreateDirectory(Config.SharedLogDir);
+                    var protoPath = Path.Combine(Config.SharedLogDir, $"smtp-{DateTime.Now:yyyyMMdd}.log");
+
+                    // IMPORTANT: Do NOT dispose the protocol logger separately.
+                    // MailKit's SmtpClient may dispose it when the client is disposed.
+                    var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
+
                     using var client = new SmtpClient(proto) { Timeout = 15000 };
                     await SendWithClientAsync(client, message, socketOptions, cancellationToken);
+
+                    File.AppendAllText(protoPath, Environment.NewLine + "-------------------------------------" + Environment.NewLine);
                 }
                 else
                 {
                     using var client = new SmtpClient { Timeout = 15000 };
                     await SendWithClientAsync(client, message, socketOptions, cancellationToken);
                 }
-
-                // delimiter between sessions (keeps file readable)
-                if (_cfg.EnableLogging)
-                    File.AppendAllText(protoPath, Environment.NewLine + "-------------------------------------" + Environment.NewLine);
 
                 _log.LogInformation("Relayed mail from {IP}", clientIp);
                 return SmtpResponse.Ok;
@@ -117,7 +110,6 @@ namespace SmtpRelay
             await client.DisconnectAsync(true, cancellationToken);
         }
 
-        // ---------- robust client-IP extractor (from main-branch approach) ----------
         private static string? GetClientIp(ISessionContext ctx)
         {
             static bool IsReal(IPEndPoint ep) =>

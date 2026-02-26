@@ -10,18 +10,17 @@ namespace SmtpRelay
     {
         private sealed class DummyDetector : IAuthenticationSecretDetector
         {
-            // Some MailKit versions call this; harmless to implement.
             public bool IsSecret(string text) => false;
 
             public IList<AuthenticationSecret> DetectSecrets(byte[] buffer, int offset, int count)
             {
-                // No detection (we're redacting DATA body/Subject ourselves).
                 return Array.Empty<AuthenticationSecret>();
             }
         }
 
         private readonly object _lock = new();
-        private readonly StreamWriter _writer;
+        private StreamWriter? _writer;
+        private bool _disposed;
 
         private readonly StringBuilder _clientBuf = new();
         private readonly StringBuilder _serverBuf = new();
@@ -31,7 +30,6 @@ namespace SmtpRelay
         private bool _pastBlankLine;
         private bool _wroteBodyRedaction;
 
-        // MailKit requires get/set on newer versions.
         public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; } = new DummyDetector();
 
         public RedactingSmtpProtocolLogger(string filePath, bool append = true)
@@ -164,6 +162,7 @@ namespace SmtpRelay
         {
             lock (_lock)
             {
+                if (_disposed || _writer == null) return;
                 _writer.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             }
         }
@@ -172,8 +171,28 @@ namespace SmtpRelay
         {
             lock (_lock)
             {
-                _writer.Flush();
-                _writer.Dispose();
+                if (_disposed) return;
+                _disposed = true;
+
+                try
+                {
+                    _writer?.Flush();
+                }
+                catch
+                {
+                    // ignore: may already be closed by MailKit
+                }
+
+                try
+                {
+                    _writer?.Dispose();
+                }
+                catch
+                {
+                    // ignore: idempotent dispose
+                }
+
+                _writer = null;
             }
         }
     }
