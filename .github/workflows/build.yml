@@ -4,6 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  workflow_call:
 
 jobs:
   build:
@@ -48,5 +49,5 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: SMTP-Relay-Installer
+          name: SmtpRelaySetup
           path: installer/Output/*.exe
