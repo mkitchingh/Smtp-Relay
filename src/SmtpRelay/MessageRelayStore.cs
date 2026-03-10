@@ -106,11 +106,11 @@ namespace SmtpRelay
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
                 await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
-            var sender = MailboxAddress.Parse(transaction.From.ToString());
+            var sender = new MailboxAddress(string.Empty, transaction.From.Address);
             var recipients = new List<MailboxAddress>();
 
             foreach (var recipient in transaction.To)
-                recipients.Add(MailboxAddress.Parse(recipient.ToString()));
+                recipients.Add(new MailboxAddress(string.Empty, recipient.Address));
 
             await client.SendAsync(message, sender, recipients, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
