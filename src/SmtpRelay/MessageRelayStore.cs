@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Reflection;
@@ -75,12 +76,12 @@ namespace SmtpRelay
                     var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
 
                     using var client = new SmtpClient(proto) { Timeout = 15000 };
-                    await SendWithClientAsync(client, message, socketOptions, cancellationToken);
+                    await SendWithClientAsync(client, message, transaction, socketOptions, cancellationToken);
                 }
                 else
                 {
                     using var client = new SmtpClient { Timeout = 15000 };
-                    await SendWithClientAsync(client, message, socketOptions, cancellationToken);
+                    await SendWithClientAsync(client, message, transaction, socketOptions, cancellationToken);
                 }
 
                 _log.LogInformation("Relayed mail from {IP}", clientIp);
@@ -96,6 +97,7 @@ namespace SmtpRelay
         private async Task SendWithClientAsync(
             SmtpClient client,
             MimeMessage message,
+            IMessageTransaction transaction,
             SecureSocketOptions socketOptions,
             CancellationToken cancellationToken)
         {
@@ -104,7 +106,13 @@ namespace SmtpRelay
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
                 await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
-            await client.SendAsync(message, cancellationToken);
+            var sender = new MailboxAddress(string.Empty, $"{transaction.From.User}@{transaction.From.Host}");
+            var recipients = new List<MailboxAddress>();
+
+            foreach (var recipient in transaction.To)
+                recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
+
+            await client.SendAsync(message, sender, recipients, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
         }
 
