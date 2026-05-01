@@ -106,22 +106,16 @@ namespace SmtpRelay
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
                 await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
-            var senderAddress = $"{transaction.From.User}@{transaction.From.Host}";
-            var hasEnvelopeSender = !string.IsNullOrWhiteSpace(transaction.From.User);
+            // Use envelope sender — use MailboxAddress.Empty for MAIL FROM:<> (e.g. Home Assistant notifications)
+            var sender = string.IsNullOrWhiteSpace(transaction.From.User)
+                ? MailboxAddress.Empty
+                : new MailboxAddress(string.Empty, $"{transaction.From.User}@{transaction.From.Host}");
 
-            if (hasEnvelopeSender)
-            {
-                var sender = new MailboxAddress(string.Empty, senderAddress);
-                var recipients = new List<MailboxAddress>();
-                foreach (var recipient in transaction.To)
-                    recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
-                await client.SendAsync(message, sender, recipients, cancellationToken);
-            }
-            else
-            {
-                // Empty envelope sender (MAIL FROM:<>) — let MailKit use the MIME headers
-                await client.SendAsync(message, cancellationToken);
-            }
+            var recipients = new List<MailboxAddress>();
+            foreach (var recipient in transaction.To)
+                recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
+
+            await client.SendAsync(message, sender, recipients, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
         }
 
