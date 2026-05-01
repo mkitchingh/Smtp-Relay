@@ -16,8 +16,8 @@
     <Nullable>enable</Nullable>
 
     <!-- version for service exe -->
-    <AssemblyVersion>1.5.1.0</AssemblyVersion>
-    <FileVersion>1.5.1.0</FileVersion>
+    <AssemblyVersion>1.5.2.0</AssemblyVersion>
+    <FileVersion>1.5.2.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
