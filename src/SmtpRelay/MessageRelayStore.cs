@@ -22,6 +22,9 @@ namespace SmtpRelay
         private readonly Config _cfg;
         private readonly ILogger _log;
 
+        // Represents MAIL FROM:<> — an empty reverse-path per RFC 5321
+        private static readonly MailboxAddress EmptySender = new MailboxAddress(string.Empty, string.Empty);
+
         public MessageRelayStore(Config cfg, ILogger log)
         {
             _cfg = cfg;
@@ -106,9 +109,9 @@ namespace SmtpRelay
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
                 await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
-            // Use envelope sender — use MailboxAddress.Empty for MAIL FROM:<> (e.g. Home Assistant notifications)
+            // Use envelope sender — use EmptySender for MAIL FROM:<> (e.g. Home Assistant notifications)
             var sender = string.IsNullOrWhiteSpace(transaction.From.User)
-                ? MailboxAddress.Empty
+                ? EmptySender
                 : new MailboxAddress(string.Empty, $"{transaction.From.User}@{transaction.From.Host}");
 
             var recipients = new List<MailboxAddress>();
