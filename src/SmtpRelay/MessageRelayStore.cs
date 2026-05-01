@@ -107,15 +107,21 @@ namespace SmtpRelay
                 await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
             var senderAddress = $"{transaction.From.User}@{transaction.From.Host}";
-            var sender = string.IsNullOrWhiteSpace(transaction.From.User)
-                ? null
-                : new MailboxAddress(string.Empty, senderAddress);
-            var recipients = new List<MailboxAddress>();
+            var hasEnvelopeSender = !string.IsNullOrWhiteSpace(transaction.From.User);
 
-            foreach (var recipient in transaction.To)
-                recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
-
-            await client.SendAsync(message, sender, recipients, cancellationToken);
+            if (hasEnvelopeSender)
+            {
+                var sender = new MailboxAddress(string.Empty, senderAddress);
+                var recipients = new List<MailboxAddress>();
+                foreach (var recipient in transaction.To)
+                    recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
+                await client.SendAsync(message, sender, recipients, cancellationToken);
+            }
+            else
+            {
+                // Empty envelope sender (MAIL FROM:<>) — let MailKit use the MIME headers
+                await client.SendAsync(message, cancellationToken);
+            }
             await client.DisconnectAsync(true, cancellationToken);
         }
 
