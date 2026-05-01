@@ -106,11 +106,10 @@ namespace SmtpRelay
             if (!string.IsNullOrWhiteSpace(_cfg.Username))
                 await client.AuthenticateAsync(_cfg.Username, _cfg.Password ?? string.Empty, cancellationToken);
 
-            _log.LogInformation("Envelope FROM: User={User} Host={Host}", transaction.From.User, transaction.From.Host);
-            foreach (var r in transaction.To)
-                _log.LogInformation("Envelope RCPT: User={User} Host={Host}", r.User, r.Host);
-
-            var sender = new MailboxAddress(string.Empty, $"{transaction.From.User}@{transaction.From.Host}");
+            var senderAddress = $"{transaction.From.User}@{transaction.From.Host}";
+            var sender = string.IsNullOrWhiteSpace(transaction.From.User)
+                ? null
+                : new MailboxAddress(string.Empty, senderAddress);
             var recipients = new List<MailboxAddress>();
 
             foreach (var recipient in transaction.To)
