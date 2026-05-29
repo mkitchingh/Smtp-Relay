@@ -2,13 +2,13 @@
 Microsoft removed the built in SMTP relay server from Windows. This is a replacement.
 Every other option I could find was no longer developed, overkill, or lacking features unless you used the paid version. 
 It is actively being developed and I will always try to keep it up to to date with current technologies.
-Config GUI shown below. All options are pretty basic and self explanatory. Service will continue to run when the GUI is closed. It only listens on port 25.
-GUI will launch after install. It may take a few seconds while Windows scans it for the first time. Start menu shortcut is named SMTP Relay Config. 
+Config GUI shown below. All options are pretty basic and self explanatory. Service will continue to run when the GUI is closed.
+GUI will launch after install. It may take a few seconds while Windows scans it for the first time. Start menu shortcut is named SMTP Relay Config.
 
-Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.1/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.1/SmtpRelaySetup.exe
-)
+This app does not phone home. No telemetry, no update checks, no external connections of any kind beyond relaying your mail.
+
+Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.3/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.3/SmtpRelaySetup.exe)
 
 **You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.  
 
 <img width="1536" height="1024" alt="SMTP-Pic" src="https://github.com/user-attachments/assets/d6ff8193-da70-405f-ae94-c4d3d57f67c4" />
-
