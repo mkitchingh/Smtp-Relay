@@ -248,6 +248,8 @@ namespace SmtpRelay.GUI
             txtUsername.Text = _cfg.Username;
             txtPassword.Text = _cfg.Password;
 
+            numListenPort.Value = _cfg.ListenPort;
+
             ApplyRelayRestrictionSafely(_cfg.AllowAllIPs);
 
             txtIpList.Lines = _cfg.AllowedIPs.ToArray();
@@ -278,6 +280,8 @@ namespace SmtpRelay.GUI
                 _cfg.Username = txtUsername.Text;
                 _cfg.Password = txtPassword.Text;
             }
+
+            _cfg.ListenPort = (int)numListenPort.Value;
 
             _cfg.AllowAllIPs = radioAllowAll.Checked;
             _cfg.AllowedIPs = txtIpList.Lines

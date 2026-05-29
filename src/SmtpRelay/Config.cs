@@ -49,6 +49,9 @@ namespace SmtpRelay
         public bool EnableLogging { get; set; } = true;
         public int RetentionDays { get; set; } = 14;
 
+        // Inbound listening port (default 25)
+        public int ListenPort { get; set; } = 25;
+
         public OutboundSecurityMode GetEffectiveSecurity()
         {
             if (OutboundSecurity.HasValue)
@@ -202,6 +205,7 @@ namespace SmtpRelay
             if (cfg.Password == null) cfg.Password = "";
             if (cfg.AllowedIPs == null) cfg.AllowedIPs = new List<string>();
             if (cfg.SmartHostPort <= 0) cfg.SmartHostPort = 25;
+            if (cfg.ListenPort <= 0) cfg.ListenPort = 25;
 
             return cfg;
         }
