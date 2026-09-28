@@ -93,8 +93,27 @@ namespace SmtpRelay
             catch (Exception ex)
             {
                 _log.LogError(ex, "Relay failure");
-                return SmtpResponse.TransactionFailed;
+                return GetRelayFailureResponse(ex);
             }
+        }
+
+        internal static SmtpResponse GetRelayFailureResponse(Exception exception)
+        {
+            if (ContainsTimeoutException(exception))
+                return new SmtpResponse(SmtpReplyCode.Aborted, "Relay operation timed out");
+
+            return SmtpResponse.TransactionFailed;
+        }
+
+        private static bool ContainsTimeoutException(Exception exception)
+        {
+            for (Exception? current = exception; current is not null; current = current.InnerException)
+            {
+                if (current is TimeoutException)
+                    return true;
+            }
+
+            return false;
         }
 
         private async Task SendWithClientAsync(
@@ -119,7 +138,15 @@ namespace SmtpRelay
                 recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
 
             await client.SendAsync(message, sender, recipients, cancellationToken);
-            await client.DisconnectAsync(true, cancellationToken);
+
+            try
+            {
+                await client.DisconnectAsync(true, cancellationToken);
+            }
+            catch (Exception ex) when (ContainsTimeoutException(ex))
+            {
+                _log.LogWarning(ex, "Timed out while disconnecting after the message was relayed");
+            }
         }
 
         private static string? GetClientIp(ISessionContext ctx)
