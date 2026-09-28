@@ -10,7 +10,7 @@ GUI will launch after install. It may take a few seconds while Windows scans it 
 
 This app does not phone home. No telemetry, no update checks, no external connections of any kind beyond relaying your mail.
 
-Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.3/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.3/SmtpRelaySetup.exe)
+Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.4/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.4/SmtpRelaySetup.exe)
 
 **You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.  
 
