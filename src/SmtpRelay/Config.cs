@@ -17,6 +17,11 @@ namespace SmtpRelay
 
     public class Config
     {
+        // Outbound SMTP timeout — 2 minutes matches MailKit's own default while keeping
+        // stalled connections bounded. Previously hardcoded to 15 seconds, which was too
+        // short for some upstream servers (e.g. Office365 under load).
+        internal const int OutboundSmtpTimeoutMilliseconds = 2 * 60 * 1000;
+
         public static readonly string SharedBaseDir;
         public static readonly string SharedConfigPath;
         public static readonly string SharedLogDir;

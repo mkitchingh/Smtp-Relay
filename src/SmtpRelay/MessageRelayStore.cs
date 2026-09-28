@@ -78,12 +78,12 @@ namespace SmtpRelay
                     // The protocol logger owns the file handle for the duration of the SMTP session.
                     var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
 
-                    using var client = new SmtpClient(proto) { Timeout = 15000 };
+                    using var client = new SmtpClient(proto) { Timeout = Config.OutboundSmtpTimeoutMilliseconds };
                     await SendWithClientAsync(client, message, transaction, socketOptions, cancellationToken);
                 }
                 else
                 {
-                    using var client = new SmtpClient { Timeout = 15000 };
+                    using var client = new SmtpClient { Timeout = Config.OutboundSmtpTimeoutMilliseconds };
                     await SendWithClientAsync(client, message, transaction, socketOptions, cancellationToken);
                 }
 
@@ -93,8 +93,29 @@ namespace SmtpRelay
             catch (Exception ex)
             {
                 _log.LogError(ex, "Relay failure");
-                return SmtpResponse.TransactionFailed;
+                return GetRelayFailureResponse(ex);
             }
+        }
+
+        // Returns 451 (temporary failure) for timeouts so the sending client retries.
+        // Returns 554 (permanent failure) for all other errors.
+        // Contributed by mustinherit (Vincent) — github.com/mustinherit
+        internal static SmtpResponse GetRelayFailureResponse(Exception exception)
+        {
+            if (ContainsTimeoutException(exception))
+                return new SmtpResponse(SmtpReplyCode.Aborted, "Relay operation timed out");
+
+            return SmtpResponse.TransactionFailed;
+        }
+
+        private static bool ContainsTimeoutException(Exception exception)
+        {
+            for (Exception? current = exception; current is not null; current = current.InnerException)
+            {
+                if (current is TimeoutException)
+                    return true;
+            }
+            return false;
         }
 
         private async Task SendWithClientAsync(
@@ -119,7 +140,19 @@ namespace SmtpRelay
                 recipients.Add(new MailboxAddress(string.Empty, $"{recipient.User}@{recipient.Host}"));
 
             await client.SendAsync(message, sender, recipients, cancellationToken);
-            await client.DisconnectAsync(true, cancellationToken);
+
+            // Disconnect after the message has been accepted upstream. A timeout here
+            // is logged as a warning only — the message was already delivered, so we
+            // must not report failure (which would cause the sender to retry and
+            // potentially produce a duplicate).
+            try
+            {
+                await client.DisconnectAsync(true, cancellationToken);
+            }
+            catch (Exception ex) when (ContainsTimeoutException(ex))
+            {
+                _log.LogWarning(ex, "Timed out while disconnecting after the message was relayed");
+            }
         }
 
         private static string? GetClientIp(ISessionContext ctx)
