@@ -78,12 +78,18 @@ namespace SmtpRelay
                     // The protocol logger owns the file handle for the duration of the SMTP session.
                     var proto = new RedactingSmtpProtocolLogger(protoPath, append: true);
 
-                    using var client = new SmtpClient(proto) { Timeout = 15000 };
+                    using var client = new SmtpClient(proto)
+                    {
+                        Timeout = Config.OutboundSmtpTimeoutMilliseconds
+                    };
                     await SendWithClientAsync(client, message, transaction, socketOptions, cancellationToken);
                 }
                 else
                 {
-                    using var client = new SmtpClient { Timeout = 15000 };
+                    using var client = new SmtpClient
+                    {
+                        Timeout = Config.OutboundSmtpTimeoutMilliseconds
+                    };
                     await SendWithClientAsync(client, message, transaction, socketOptions, cancellationToken);
                 }
 

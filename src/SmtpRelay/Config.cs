@@ -17,6 +17,9 @@ namespace SmtpRelay
 
     public class Config
     {
+        // Match MailKit's finite default without the previous 15-second cutoff.
+        internal const int OutboundSmtpTimeoutMilliseconds = 2 * 60 * 1000;
+
         public static readonly string SharedBaseDir;
         public static readonly string SharedConfigPath;
         public static readonly string SharedLogDir;

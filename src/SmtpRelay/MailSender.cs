@@ -35,8 +35,7 @@ namespace SmtpRelay
 
             using var client = new SmtpClient();
 
-            // Reasonable timeouts; avoid hanging forever
-            client.Timeout = 15000;
+            client.Timeout = Config.OutboundSmtpTimeoutMilliseconds;
 
             await client.ConnectAsync(cfg.SmartHost, cfg.SmartHostPort, options, ct).ConfigureAwait(false);
 

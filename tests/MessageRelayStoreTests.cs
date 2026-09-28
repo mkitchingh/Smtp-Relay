@@ -15,7 +15,7 @@ namespace Tests
             var exception = new IOException(
                 "The read operation failed, see inner exception.",
                 new TimeoutException(
-                    "Operation timed out after 15000 milliseconds",
+                    "Operation timed out",
                     new TaskCanceledException("A task was canceled.")));
 
             var response = MessageRelayStore.GetRelayFailureResponse(exception);
