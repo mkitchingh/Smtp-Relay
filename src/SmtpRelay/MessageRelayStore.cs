@@ -97,11 +97,18 @@ namespace SmtpRelay
             }
         }
 
-        // Returns 451 (temporary failure) for timeouts so the sending client retries.
-        // Returns 554 (permanent failure) for all other errors.
+        // Return a temporary failure when the upstream SMTP server reports a 4xx
+        // status or the relay times out, so the sending client can retry.
+        // Return 554 for other errors.
         // Contributed by mustinherit (Vincent) — github.com/mustinherit
         internal static SmtpResponse GetRelayFailureResponse(Exception exception)
         {
+            if (exception is SmtpCommandException smtpException &&
+                (int)smtpException.StatusCode >= 400 &&
+                (int)smtpException.StatusCode < 500)
+                return new SmtpResponse(SmtpReplyCode.Aborted,
+                    $"Upstream SMTP temporary failure ({(int)smtpException.StatusCode})");
+
             if (ContainsTimeoutException(exception))
                 return new SmtpResponse(SmtpReplyCode.Aborted, "Relay operation timed out");
 
