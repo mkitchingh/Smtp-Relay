@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using MailKit.Net.Smtp;
 using SmtpRelay;
 using SmtpServer.Protocol;
 using Xunit;
@@ -41,6 +42,18 @@ namespace Tests
             var response = MessageRelayStore.GetRelayFailureResponse(new IOException("Relay failed"));
 
             Assert.Equal(SmtpReplyCode.TransactionFailed, response.ReplyCode);
+        }
+
+        [Fact]
+        public void GetRelayFailureResponse_ReturnsTemporaryFailure_ForUpstream4xxResponse()
+        {
+            var exception = new SmtpCommandException(SmtpErrorCode.RecipientNotAccepted,
+                SmtpStatusCode.ServiceNotAvailable, "Upstream 4xx");
+
+            var response = MessageRelayStore.GetRelayFailureResponse(exception);
+
+            Assert.Equal(SmtpReplyCode.Aborted, response.ReplyCode);
+            Assert.Contains("421", response.Message);
         }
     }
 }
