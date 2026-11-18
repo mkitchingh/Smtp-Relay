@@ -284,10 +284,36 @@ namespace SmtpRelay.GUI
             _cfg.ListenPort = (int)numListenPort.Value;
 
             _cfg.AllowAllIPs = radioAllowAll.Checked;
-            _cfg.AllowedIPs = txtIpList.Lines
-                .Select(s => s.Trim())
-                .Where(s => s.Length > 0)
-                .ToList();
+
+            if (!_cfg.AllowAllIPs)
+            {
+                // Accept newline, comma, or space as separators so the user
+                // can enter ranges in any common format.
+                var entries = txtIpList.Text
+                    .Split(new[] { '\r', '\n', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => s.Length > 0)
+                    .ToList();
+
+                var invalid = entries.Where(e => !Config.IsValidIpEntry(e)).ToList();
+                if (invalid.Count > 0)
+                {
+                    MessageBox.Show(
+                        $"The following entries are not valid IP addresses, CIDR ranges, or dash ranges and were not saved:\n\n{string.Join("\n", invalid)}",
+                        "SMTP Relay - Invalid IP Entry",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Rewrite the text box with one entry per line so it looks clean
+                txtIpList.Lines = entries.ToArray();
+                _cfg.AllowedIPs = entries;
+            }
+            else
+            {
+                _cfg.AllowedIPs = new System.Collections.Generic.List<string>();
+            }
 
             _cfg.EnableLogging = chkEnableLogging.Checked;
             _cfg.RetentionDays = (int)numRetentionDays.Value;
