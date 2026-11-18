@@ -12,26 +12,6 @@ This app does not phone home. No telemetry, no update checks, no external connec
 
 Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.5/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.5/SmtpRelaySetup.exe)
 
-**You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.
-
-## Silent / Unattended Installation
-
-The installer supports a `/config=` parameter for deploying with a pre-built configuration file. This is useful for distributing the app to multiple machines without requiring users to configure it manually.
-
-```
-SmtpRelaySetup.exe /config="C:\path\to\config.json"
-```
-
-When `/config=` is supplied:
-- The config file is copied into the install directory before the service starts, always overwriting any existing config.
-- The "Open SMTP Relay Config" post-install step is skipped automatically since the service is already configured.
-
-You can combine this with Inno Setup's standard silent install flag:
-
-```
-SmtpRelaySetup.exe /silent /config="C:\path\to\config.json"
-```
-
-The config file is standard JSON. The easiest way to generate one is to configure a machine using the GUI and then copy the `config.json` from `C:\Program Files\SMTP Relay\`.
+**You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.  
 
 <img width="908" height="793" alt="SMTP-Pic153" src="https://github.com/user-attachments/assets/19c7e93c-6edf-43b4-bf47-c89e670de76c" />
