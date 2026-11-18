@@ -10,8 +10,24 @@ GUI will launch after install. It may take a few seconds while Windows scans it 
 
 This app does not phone home. No telemetry, no update checks, no external connections of any kind beyond relaying your mail.
 
-Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.5/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/download/v1.5.5/SmtpRelaySetup.exe)
+Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/latest/download/SmtpRelaySetup.exe](https://github.com/mkitchingh/Smtp-Relay/releases/latest/download/SmtpRelaySetup.exe)
 
 **You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.  
 
 <img width="908" height="793" alt="SMTP-Pic153" src="https://github.com/user-attachments/assets/19c7e93c-6edf-43b4-bf47-c89e670de76c" />
+
+## Silent / Unattended Installation
+
+The installer supports a `/SILENT` flag and an optional `/config=` parameter for automated or mass deployment.
+
+**Basic silent install** (GUI launches after install to complete configuration):
+```
+SmtpRelaySetup.exe /SILENT
+```
+
+**Silent install with a pre-built config file** (GUI will not launch):
+```
+SmtpRelaySetup.exe /SILENT /config="C:\path\to\config.json"
+```
+
+The config file is the same `config.json` the service uses at runtime. Export one from an existing installation at `C:\ProgramData\SmtpRelay\config.json` and use it as a template for deployment.
