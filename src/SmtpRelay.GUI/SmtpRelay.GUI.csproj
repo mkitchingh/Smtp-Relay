@@ -12,6 +12,10 @@
 
     <!-- set icon for EXE / taskbar -->
     <ApplicationIcon>smtp.ico</ApplicationIcon>
+
+    <!-- UAC manifest — requires admin so the GUI can manage the service and
+         write its config to Program Files from any launch point. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <!-- ───── copy smtp.ico into build / publish folder ───── -->
