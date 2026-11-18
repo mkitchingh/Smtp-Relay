@@ -55,5 +55,18 @@ namespace Tests
             Assert.Equal(SmtpReplyCode.Aborted, response.ReplyCode);
             Assert.Contains("421", response.Message);
         }
+
+        [Fact]
+        public void GetRelayFailureResponse_ReturnsPermanentFailure_WithUpstreamDetails_For5xxResponse()
+        {
+            var exception = new SmtpCommandException(SmtpErrorCode.MessageNotAccepted,
+                SmtpStatusCode.MailboxUnavailable, "5.7.1 Message Rejected");
+
+            var response = MessageRelayStore.GetRelayFailureResponse(exception);
+
+            Assert.Equal(SmtpReplyCode.TransactionFailed, response.ReplyCode);
+            Assert.Contains("550", response.Message);
+            Assert.Contains("5.7.1 Message Rejected", response.Message);
+        }
     }
 }

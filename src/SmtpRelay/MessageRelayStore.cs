@@ -98,16 +98,26 @@ namespace SmtpRelay
         }
 
         // Returns 451 (temporary failure) for timeouts and upstream 4xx responses so the sending client retries.
-        // Returns 554 (permanent failure) for all other errors.
+        // Returns 554 (permanent failure) for all other errors, including upstream 5xx rejections.
+        // Upstream status codes and messages are included in the response so senders can diagnose failures.
         // Contributed by mustinherit (Vincent) — github.com/mustinherit
         internal static SmtpResponse GetRelayFailureResponse(Exception exception)
         {
-            // Upstream 4xx responses are transient — relay them as 451 so the sender retries.
-            if (exception is SmtpCommandException smtpEx &&
-                (int)smtpEx.StatusCode >= 400 &&
-                (int)smtpEx.StatusCode < 500)
-                return new SmtpResponse(SmtpReplyCode.Aborted,
-                    $"Upstream SMTP temporary failure ({(int)smtpEx.StatusCode})");
+            if (exception is SmtpCommandException smtpEx)
+            {
+                var code = (int)smtpEx.StatusCode;
+                var text = string.IsNullOrWhiteSpace(smtpEx.Message) ? string.Empty : smtpEx.Message.Trim();
+
+                // 4xx: transient — return 451 so the sender retries.
+                if (code >= 400 && code < 500)
+                    return new SmtpResponse(SmtpReplyCode.Aborted,
+                        $"Upstream temporary failure ({code}){(text.Length > 0 ? ": " + text : string.Empty)}");
+
+                // 5xx: permanent — return 554 but include the upstream code and message.
+                if (code >= 500)
+                    return new SmtpResponse(SmtpReplyCode.TransactionFailed,
+                        $"Upstream permanent failure ({code}){(text.Length > 0 ? ": " + text : string.Empty)}");
+            }
 
             if (ContainsTimeoutException(exception))
                 return new SmtpResponse(SmtpReplyCode.Aborted, "Relay operation timed out");
