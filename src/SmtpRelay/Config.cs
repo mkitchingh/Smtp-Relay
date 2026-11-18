@@ -109,6 +109,21 @@ namespace SmtpRelay
             return false;
         }
 
+        /// <summary>
+        /// Returns true if <paramref name="entry"/> is a valid single IP address,
+        /// CIDR range, or dash-separated range. Used by the GUI to validate input
+        /// before saving.
+        /// </summary>
+        public static bool IsValidIpEntry(string entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry)) return false;
+            var s = entry.Trim();
+            if (IPAddress.TryParse(s, out _)) return true;
+            if (TryParseCidr(s, out _, out _)) return true;
+            if (TryParseDashRange(s, out _, out _)) return true;
+            return false;
+        }
+
         private static bool TryParseCidr(string s, out IPAddress network, out int prefixLength)
         {
             network = IPAddress.None;
