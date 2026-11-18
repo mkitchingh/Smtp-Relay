@@ -97,8 +97,8 @@ namespace SmtpRelay
             }
         }
 
-        // Returns 451 (temporary failure) for timeouts and upstream 4xx responses so the sending client retries.
-        // Returns 554 (permanent failure) for all other errors, including upstream 5xx rejections.
+        // Returns 451 (temporary failure) for timeouts, socket errors, and upstream 4xx responses so the sending client retries.
+        // Returns 554 (permanent failure) for upstream 5xx rejections and all other errors.
         // Upstream status codes and messages are included in the response so senders can diagnose failures.
         // Contributed by mustinherit (Vincent) — github.com/mustinherit
         internal static SmtpResponse GetRelayFailureResponse(Exception exception)
@@ -122,6 +122,11 @@ namespace SmtpRelay
             if (ContainsTimeoutException(exception))
                 return new SmtpResponse(SmtpReplyCode.Aborted, "Relay operation timed out");
 
+            // Socket errors (DNS failure, connection refused, network unreachable, etc.) are infrastructure
+            // problems, not message problems — return 451 so the sender retries rather than bouncing.
+            if (ContainsSocketException(exception))
+                return new SmtpResponse(SmtpReplyCode.Aborted, "Relay connection failed, please retry");
+
             return SmtpResponse.TransactionFailed;
         }
 
@@ -130,6 +135,16 @@ namespace SmtpRelay
             for (Exception? current = exception; current is not null; current = current.InnerException)
             {
                 if (current is TimeoutException)
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool ContainsSocketException(Exception exception)
+        {
+            for (Exception? current = exception; current is not null; current = current.InnerException)
+            {
+                if (current is System.Net.Sockets.SocketException)
                     return true;
             }
             return false;

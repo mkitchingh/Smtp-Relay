@@ -57,6 +57,29 @@ namespace Tests
         }
 
         [Fact]
+        public void GetRelayFailureResponse_ReturnsTemporaryFailure_ForSocketException()
+        {
+            var exception = new System.Net.Sockets.SocketException(11001); // No such host is known
+
+            var response = MessageRelayStore.GetRelayFailureResponse(exception);
+
+            Assert.Equal(SmtpReplyCode.Aborted, response.ReplyCode);
+            Assert.Contains("retry", response.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void GetRelayFailureResponse_ReturnsTemporaryFailure_ForWrappedSocketException()
+        {
+            var exception = new IOException(
+                "Network error",
+                new System.Net.Sockets.SocketException(10061)); // Connection refused
+
+            var response = MessageRelayStore.GetRelayFailureResponse(exception);
+
+            Assert.Equal(SmtpReplyCode.Aborted, response.ReplyCode);
+        }
+
+        [Fact]
         public void GetRelayFailureResponse_ReturnsPermanentFailure_WithUpstreamDetails_For5xxResponse()
         {
             var exception = new SmtpCommandException(SmtpErrorCode.MessageNotAccepted,
