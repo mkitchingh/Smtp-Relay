@@ -44,7 +44,10 @@ jobs:
       # ---- Validate Inno Setup Pascal Script -----------------------
       - name: Validate installer script
         shell: pwsh
-        run: python installer/validate-iss.py installer/SmtpRelayInstaller.iss
+        run: |
+          python installer/validate-iss.py `
+            installer/SmtpRelayInstaller.iss `
+            installer/test/probe.iss
 
       # ---- Compile Inno Setup --------------------------------------
       - name: Compile installer

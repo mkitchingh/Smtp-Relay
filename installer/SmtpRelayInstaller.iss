@@ -35,55 +35,18 @@ Filename: "sc.exe"; Parameters: "delete ""SMTPRelayService"""; RunOnceId: "Delet
 
 [Code]
 
-// Resolved absolute path to the supplied config file.
-// Set in InitializeSetup (before UAC elevation changes the working directory)
-// and used in CurStepChanged.
-var
-  ResolvedConfigPath: String;
+// /config= parsing and path resolution, shared with the automated
+// path-resolution test in installer/test/probe.iss.
+#include "configpath.iss"
 
-// Returns the raw value of /config="..." from the command line, or empty string.
-function GetConfigParam: String;
-var
-  i: Integer;
-  param: String;
-begin
-  Result := '';
-  for i := 1 to ParamCount do
-  begin
-    param := ParamStr(i);
-    if Pos('/config=', LowerCase(param)) = 1 then
-    begin
-      Result := Copy(param, Length('/config=') + 1, Length(param));
-      // Strip surrounding quotes if present
-      if (Length(Result) >= 2) and (Result[1] = '"') and (Result[Length(Result)] = '"') then
-        Result := Copy(Result, 2, Length(Result) - 2);
-      Exit;
-    end;
-  end;
-end;
-
-// Returns true when a /config= argument was supplied.
-function ConfigFileProvided: Boolean;
-begin
-  Result := ResolvedConfigPath <> '';
-end;
-
-// Resolve the config path, handling both absolute paths and paths relative to
-// the installer's own directory.  We cannot rely on the shell working directory
-// because Inno Setup self-extracts to a temp folder before any Pascal Script
-// runs, changing the process CWD away from the launch location.
-// Using the installer's directory (ExtractFilePath(ParamStr(0))) is predictable
-// and consistent: relative paths are resolved from the same folder as the .exe.
-// Also handles /? and /help.
+// Handles /? and /help, then resolves /config=.
 function InitializeSetup: Boolean;
 var
   i: Integer;
-  p, raw, nl, msg: String;
-  installerDir: String;
+  p, nl, msg: String;
 begin
   Result := True;
 
-  // Handle /? and /help
   for i := 1 to ParamCount do
   begin
     p := LowerCase(ParamStr(i));
@@ -96,50 +59,75 @@ begin
              nl +
              '  /config="path\to\config.json"' + nl +
              '      Pre-seeds the service configuration file.' + nl +
-             '      Accepts absolute or relative paths.' + nl +
-             '      Relative paths are resolved from the installer''s directory.' + nl +
              '      Suppresses the post-install Config GUI launch.' + nl +
+             nl +
+             '      Absolute paths are used as given. A relative path is' + nl +
+             '      looked for relative to the current directory, then to' + nl +
+             '      the installer''s folder, then to its parent folder.' + nl +
              nl +
              'Examples:' + nl +
              '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"' + nl +
-             '  SmtpRelaySetup.exe /SILENT /config="config.json"  (same folder as installer)';
+             '  SmtpRelaySetup.exe /SILENT /config="config.json"' + nl +
+             '  assets\SmtpRelaySetup.exe /SILENT /config="assets\config.json"';
       MsgBox(msg, mbInformation, MB_OK);
       Result := False;
       Exit;
     end;
   end;
 
-  raw := GetConfigParam;
-  if raw <> '' then
+  InitConfigParam;
+
+  // Fail early rather than installing with no config at all. A silent install
+  // is typically unattended, so report through the log and the exit code
+  // instead of putting a modal dialog on a machine nobody is watching.
+  if ConfigParamGiven and (ResolvedConfigPath = '') then
   begin
-    // If the path is already absolute, use it directly.
-    // Otherwise resolve relative to the installer's own directory, which is
-    // reliable regardless of UAC elevation or CWD changes.
-    if PathIsRooted(raw) then
-      ResolvedConfigPath := raw
-    else
-    begin
-      installerDir := ExtractFilePath(ParamStr(0));
-      ResolvedConfigPath := AddBackslash(installerDir) + raw;
-    end;
+    msg := 'Setup could not find the config file given by /config=.' + #13#10 + #13#10 +
+           ConfigSearchLog + #13#10 +
+           'Check the path, or pass an absolute path.';
+    Log('/config= could not be resolved.' + #13#10 + ConfigSearchLog);
+    if not WizardSilent then
+      MsgBox(msg, mbError, MB_OK);
+    Result := False;
+    Exit;
   end;
 end;
 
-// Copy the supplied config into place before the service starts (always overwrite).
-// ssInstall fires after files are extracted but before [Run] entries (sc start), so
-// the config is in place when the service starts for the first time.
+// Put the supplied config in place before the service is created and started.
+//
+// ssInstall fires BEFORE Setup installs any files, so {app} does not exist
+// yet and a plain FileCopy here fails -- the directory has to be created
+// first. Copying at this point (rather than ssPostInstall) guarantees the
+// config is on disk before the [Run] entries create and start the service,
+// so the service reads the intended configuration on its very first start.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  dest: String;
+  dest, appDir: String;
 begin
   if CurStep = ssInstall then
   begin
     if ResolvedConfigPath = '' then Exit;
 
     // Config lives one level above the service and gui folders
-    dest := ExpandConstant('{app}\config.json');
+    appDir := ExpandConstant('{app}');
+    dest   := appDir + '\config.json';
+
+    // {app} is not created until Setup starts installing files.
+    if not DirExists(appDir) then
+    begin
+      if not ForceDirectories(appDir) then
+        RaiseException('Setup could not create ' + appDir +
+                       ' in order to place the /config= file.');
+    end;
 
     if not FileCopy(ResolvedConfigPath, dest, False) then
-      MsgBox('Warning: could not copy config file to ' + dest + '. You can copy it manually or use the Config GUI.', mbError, MB_OK);
+      RaiseException('Setup could not copy' + #13#10 +
+                     '  ' + ResolvedConfigPath + #13#10 +
+                     'to' + #13#10 +
+                     '  ' + dest + #13#10 + #13#10 +
+                     'The service would start with the wrong configuration, ' +
+                     'so Setup has stopped.');
+
+    Log('Seeded config from ' + ResolvedConfigPath + ' to ' + dest);
   end;
 end;

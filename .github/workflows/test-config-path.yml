@@ -1,0 +1,271 @@
+name: Test /config= path resolution
+
+on:
+  push:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/test-config-path.yml'
+  pull_request:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/test-config-path.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate installer scripts
+        shell: pwsh
+        run: |
+          python installer/validate-iss.py `
+            installer/SmtpRelayInstaller.iss `
+            installer/test/probe.iss
+
+      - name: Compile probe
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\test\probe.iss
+          if (-not (Test-Path "installer\test\Output\probe.exe")) {
+            throw "probe.exe was not produced"
+          }
+
+      - name: Run path-resolution scenarios
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = (Resolve-Path "installer\test\Output\probe.exe").Path
+
+          # C:\deploy\assets\probe.exe  +  C:\deploy\assets\config.json
+          # C:\deploy\config.json  (for the "parent" cases)
+          $deploy = "C:\deploy"
+          $assets = "$deploy\assets"
+          New-Item -ItemType Directory -Force -Path $assets | Out-Null
+          Copy-Item $probe "$assets\probe.exe" -Force
+          '{"marker":"assets"}' | Set-Content "$assets\config.json" -NoNewline
+          '{"marker":"deploy"}' | Set-Content "$deploy\config.json" -NoNewline
+          '{"marker":"abs"}'    | Set-Content "C:\abs-config.json"  -NoNewline
+
+          $script:failures = 0
+          $i = 0
+
+          function Invoke-Probe {
+            param([string]$WorkDir, [string]$Exe, [string]$ConfigArg)
+
+            $script:i++
+            $out = "C:\probe-out-$script:i.txt"
+            if (Test-Path $out) { Remove-Item $out -Force }
+
+            Push-Location $WorkDir
+            try {
+              Start-Process -FilePath $Exe `
+                            -ArgumentList '/SILENT', "/config=$ConfigArg", "/out=$out" `
+                            -WorkingDirectory $WorkDir `
+                            -Wait | Out-Null
+            } finally {
+              Pop-Location
+            }
+
+            # Setup relaunches itself, so -Wait can return before the child is done.
+            $deadline = (Get-Date).AddSeconds(30)
+            while (-not (Test-Path $out) -and (Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path $out)) { return $null }
+            return Get-Content $out -Raw
+          }
+
+          function Test-Scenario {
+            param(
+              [string]$Name,
+              [string]$WorkDir,
+              [string]$Exe,
+              [string]$ConfigArg,
+              [string]$Expect   # '' means "expected to resolve to nothing"
+            )
+
+            Write-Host ""
+            Write-Host "=== $Name ===" -ForegroundColor Cyan
+            Write-Host "cwd=$WorkDir  exe=$Exe  /config=$ConfigArg"
+
+            $report = Invoke-Probe -WorkDir $WorkDir -Exe $Exe -ConfigArg $ConfigArg
+            if ($null -eq $report) {
+              Write-Host "FAIL: probe produced no output" -ForegroundColor Red
+              $script:failures++
+              return
+            }
+
+            Write-Host $report
+
+            $resolved = ''
+            foreach ($line in ($report -split "`r?`n")) {
+              if ($line -like 'RESOLVED=*') {
+                $resolved = $line.Substring('RESOLVED='.Length).Trim()
+                break
+              }
+            }
+
+            if ($resolved -ieq $Expect) {
+              Write-Host "PASS: resolved to '$resolved'" -ForegroundColor Green
+            } else {
+              Write-Host "FAIL: expected '$Expect' but got '$resolved'" -ForegroundColor Red
+              $script:failures++
+            }
+          }
+
+          # The exact shape reported in issues #19 / #29:
+          #   cd C:\deploy
+          #   assets\setup.exe /config="assets\config.json"
+          Test-Scenario -Name 'issue #19 shape: both paths relative to CWD' `
+                        -WorkDir $deploy -Exe "$assets\probe.exe" `
+                        -ConfigArg 'assets\config.json' `
+                        -Expect "$assets\config.json"
+
+          # Installer and config side by side, invoked from that folder.
+          Test-Scenario -Name 'config next to installer, run from there' `
+                        -WorkDir $assets -Exe "$assets\probe.exe" `
+                        -ConfigArg 'config.json' `
+                        -Expect "$assets\config.json"
+
+          # Installer in a subfolder, config in the folder the user is sitting in.
+          Test-Scenario -Name 'config in CWD, installer one level down' `
+                        -WorkDir $deploy -Exe "$assets\probe.exe" `
+                        -ConfigArg 'config.json' `
+                        -Expect "$deploy\config.json"
+
+          # Absolute paths must be used exactly as given.
+          Test-Scenario -Name 'absolute path' `
+                        -WorkDir $deploy -Exe "$assets\probe.exe" `
+                        -ConfigArg 'C:\abs-config.json' `
+                        -Expect 'C:\abs-config.json'
+
+          # ---------------------------------------------------------------
+          # The scenarios above all resolve on candidate 1 (the working
+          # directory), because this runner is already elevated and therefore
+          # never triggers Setup's UAC relaunch. On a normal workstation that
+          # relaunch can leave the process CWD somewhere other than where the
+          # user typed the command, and the fallbacks are what save it.
+          #
+          # These two run from an UNRELATED directory, which makes candidate 1
+          # miss and forces candidates 2 and 3 to do the work -- exactly the
+          # path a UAC-elevated install takes.
+          # ---------------------------------------------------------------
+          $elsewhere = "C:\elsewhere"
+          New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
+
+          # Forces candidate 2: relative to the folder holding Setup.exe.
+          Test-Scenario -Name 'CWD lost -> falls back to installer folder' `
+                        -WorkDir $elsewhere -Exe "$assets\probe.exe" `
+                        -ConfigArg 'config.json' `
+                        -Expect "$assets\config.json"
+
+          # Forces candidate 3: relative to the PARENT of Setup.exe's folder.
+          # This is the issue #19 command shape with the CWD no longer intact,
+          # i.e. what actually happens behind a UAC prompt.
+          Test-Scenario -Name 'CWD lost -> falls back to installer parent (issue #19 under UAC)' `
+                        -WorkDir $elsewhere -Exe "$assets\probe.exe" `
+                        -ConfigArg 'assets\config.json' `
+                        -Expect "$assets\config.json"
+
+          # A path that does not exist must resolve to nothing, not to a guess.
+          Test-Scenario -Name 'missing file resolves to nothing' `
+                        -WorkDir $deploy -Exe "$assets\probe.exe" `
+                        -ConfigArg 'nope\missing.json' `
+                        -Expect ''
+
+          Write-Host ""
+          if ($script:failures -gt 0) {
+            throw "$script:failures scenario(s) failed"
+          }
+          Write-Host "All scenarios passed." -ForegroundColor Green
+
+      - name: Build real installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path installer\output\service | Out-Null
+          New-Item -ItemType Directory -Force -Path installer\output\gui | Out-Null
+          'placeholder' | Set-Content installer\output\service\placeholder.txt
+          'placeholder' | Set-Content installer\output\gui\placeholder.txt
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\SmtpRelayInstaller.iss
+          if (-not (Test-Path "installer\Output\SmtpRelaySetup.exe")) {
+            throw "SmtpRelaySetup.exe was not produced"
+          }
+
+      - name: End-to-end install with the issue #19 command shape
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $deploy = "C:\e2e"
+          $assets = "$deploy\assets"
+          New-Item -ItemType Directory -Force -Path $assets | Out-Null
+          Copy-Item "installer\Output\SmtpRelaySetup.exe" "$assets\SmtpRelaySetup.exe" -Force
+          '{"SmartHost":"e2e.example.com","SmartHostPort":2525}' |
+            Set-Content "$assets\config.json" -NoNewline
+
+          # NOTE: do not use -Wait here. The installer's [Run] section calls
+          # "sc start SMTPRelayService", and this job builds the installer with
+          # placeholder binaries, so the service can never reach running state
+          # and sc blocks. The config copy happens in ssInstall, which runs
+          # BEFORE [Run], so we poll for the file and then stop the installer.
+          Push-Location $deploy
+          try {
+            Start-Process -FilePath "$assets\SmtpRelaySetup.exe" `
+                          -ArgumentList '/SILENT', '/config=assets\config.json', `
+                                        '/LOG=C:\e2e-install.log' `
+                          -WorkingDirectory $deploy | Out-Null
+          } finally {
+            Pop-Location
+          }
+
+          $installed = "C:\Program Files\SMTP Relay\config.json"
+          $deadline = (Get-Date).AddSeconds(120)
+          while (-not (Test-Path $installed) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+          }
+
+          # Tear down the installer / blocked sc.exe regardless of outcome.
+          Get-Process -Name 'SmtpRelaySetup', 'sc' -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+          $log = ''
+          if (Test-Path "C:\e2e-install.log") {
+            $log = Get-Content "C:\e2e-install.log" -Raw
+            Write-Host "--- install log (tail) ---"
+            Get-Content "C:\e2e-install.log" -Tail 40
+          }
+
+          if (-not (Test-Path $installed)) {
+            throw "FAIL: $installed was never created"
+          }
+
+          # A /SILENT install is unattended. A modal dialog there blocks a
+          # deployment on a machine nobody is watching, so treat one as a
+          # failure even when the file did land.
+          if ($log -match 'Message box') {
+            throw "FAIL: a modal dialog was shown during a /SILENT install"
+          }
+
+          $content = Get-Content $installed -Raw
+          Write-Host "--- installed config.json ---"
+          Write-Host $content
+
+          if ($content -notmatch 'e2e\.example\.com') {
+            throw "FAIL: installed config.json is not the one we passed in"
+          }
+          Write-Host "PASS: config.json seeded from a relative /config= path" -ForegroundColor Green
+
+      - name: Clean up service
+        if: always()
+        shell: pwsh
+        run: |
+          sc.exe stop SMTPRelayService 2>&1 | Out-Null
+          sc.exe delete SMTPRelayService 2>&1 | Out-Null
+          exit 0
