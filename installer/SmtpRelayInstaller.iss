@@ -72,6 +72,9 @@ begin
     src := GetConfigParam;
     if src = '' then Exit;
 
+    // Resolve relative paths against the directory the installer was launched from.
+    src := ExpandFileName(src);
+
     // Config lives one level above the service and gui folders
     dest := ExpandConstant('{app}\config.json');
 
