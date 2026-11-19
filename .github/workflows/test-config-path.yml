@@ -14,6 +14,7 @@ on:
 jobs:
   test:
     runs-on: windows-latest
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +35,7 @@ jobs:
           }
 
       - name: Run path-resolution scenarios
+        timeout-minutes: 6
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -142,6 +144,34 @@ jobs:
                         -ConfigArg 'C:\abs-config.json' `
                         -Expect 'C:\abs-config.json'
 
+          # ---------------------------------------------------------------
+          # The scenarios above all resolve on candidate 1 (the working
+          # directory), because this runner is already elevated and therefore
+          # never triggers Setup's UAC relaunch. On a normal workstation that
+          # relaunch can leave the process CWD somewhere other than where the
+          # user typed the command, and the fallbacks are what save it.
+          #
+          # These two run from an UNRELATED directory, which makes candidate 1
+          # miss and forces candidates 2 and 3 to do the work -- exactly the
+          # path a UAC-elevated install takes.
+          # ---------------------------------------------------------------
+          $elsewhere = "C:\elsewhere"
+          New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
+
+          # Forces candidate 2: relative to the folder holding Setup.exe.
+          Test-Scenario -Name 'CWD lost -> falls back to installer folder' `
+                        -WorkDir $elsewhere -Exe "$assets\probe.exe" `
+                        -ConfigArg 'config.json' `
+                        -Expect "$assets\config.json"
+
+          # Forces candidate 3: relative to the PARENT of Setup.exe's folder.
+          # This is the issue #19 command shape with the CWD no longer intact,
+          # i.e. what actually happens behind a UAC prompt.
+          Test-Scenario -Name 'CWD lost -> falls back to installer parent (issue #19 under UAC)' `
+                        -WorkDir $elsewhere -Exe "$assets\probe.exe" `
+                        -ConfigArg 'assets\config.json' `
+                        -Expect "$assets\config.json"
+
           # A path that does not exist must resolve to nothing, not to a guess.
           Test-Scenario -Name 'missing file resolves to nothing' `
                         -WorkDir $deploy -Exe "$assets\probe.exe" `
@@ -167,6 +197,7 @@ jobs:
           }
 
       - name: End-to-end install with the issue #19 command shape
+        timeout-minutes: 6
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -178,21 +209,31 @@ jobs:
           '{"SmartHost":"e2e.example.com","SmartHostPort":2525}' |
             Set-Content "$assets\config.json" -NoNewline
 
+          # NOTE: do not use -Wait here. The installer's [Run] section calls
+          # "sc start SMTPRelayService", and this job builds the installer with
+          # placeholder binaries, so the service can never reach running state
+          # and sc blocks. The config copy happens in ssInstall, which runs
+          # BEFORE [Run], so we poll for the file and then stop the installer.
           Push-Location $deploy
           try {
             Start-Process -FilePath "$assets\SmtpRelaySetup.exe" `
                           -ArgumentList '/SILENT', '/config=assets\config.json', `
                                         '/LOG=C:\e2e-install.log' `
-                          -WorkingDirectory $deploy -Wait | Out-Null
+                          -WorkingDirectory $deploy | Out-Null
           } finally {
             Pop-Location
           }
 
           $installed = "C:\Program Files\SMTP Relay\config.json"
-          $deadline = (Get-Date).AddSeconds(90)
+          $deadline = (Get-Date).AddSeconds(120)
           while (-not (Test-Path $installed) -and (Get-Date) -lt $deadline) {
             Start-Sleep -Milliseconds 500
           }
+
+          # Tear down the installer / blocked sc.exe regardless of outcome.
+          Get-Process -Name 'SmtpRelaySetup', 'sc' -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
 
           if (Test-Path "C:\e2e-install.log") {
             Write-Host "--- install log (tail) ---"
