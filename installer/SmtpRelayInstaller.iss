@@ -68,13 +68,18 @@ begin
   Result := ResolvedConfigPath <> '';
 end;
 
-// Resolve the config path early, before UAC elevation can change the working directory.
-// ExpandFileName resolves relative paths against the current working directory.
+// Resolve the config path, handling both absolute paths and paths relative to
+// the installer's own directory.  We cannot rely on the shell working directory
+// because Inno Setup self-extracts to a temp folder before any Pascal Script
+// runs, changing the process CWD away from the launch location.
+// Using the installer's directory (ExtractFilePath(ParamStr(0))) is predictable
+// and consistent: relative paths are resolved from the same folder as the .exe.
 // Also handles /? and /help.
 function InitializeSetup: Boolean;
 var
   i: Integer;
   p, raw, nl, msg: String;
+  installerDir: String;
 begin
   Result := True;
 
@@ -92,21 +97,32 @@ begin
              '  /config="path\to\config.json"' + nl +
              '      Pre-seeds the service configuration file.' + nl +
              '      Accepts absolute or relative paths.' + nl +
+             '      Relative paths are resolved from the installer''s directory.' + nl +
              '      Suppresses the post-install Config GUI launch.' + nl +
              nl +
-             'Example:' + nl +
-             '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"';
+             'Examples:' + nl +
+             '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"' + nl +
+             '  SmtpRelaySetup.exe /SILENT /config="config.json"  (same folder as installer)';
       MsgBox(msg, mbInformation, MB_OK);
       Result := False;
       Exit;
     end;
   end;
 
-  // Resolve /config= path now, while the working directory is still the launch directory.
-  // UAC elevation changes the working directory, so we cannot do this in CurStepChanged.
   raw := GetConfigParam;
   if raw <> '' then
-    ResolvedConfigPath := ExpandFileName(raw);
+  begin
+    // If the path is already absolute, use it directly.
+    // Otherwise resolve relative to the installer's own directory, which is
+    // reliable regardless of UAC elevation or CWD changes.
+    if PathIsRooted(raw) then
+      ResolvedConfigPath := raw
+    else
+    begin
+      installerDir := ExtractFilePath(ParamStr(0));
+      ResolvedConfigPath := AddBackslash(installerDir) + raw;
+    end;
+  end;
 end;
 
 // Copy the supplied config into place before the service starts (always overwrite).
