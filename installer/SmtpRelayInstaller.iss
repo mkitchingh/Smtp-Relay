@@ -35,6 +35,29 @@ Filename: "sc.exe"; Parameters: "delete ""SMTPRelayService"""; RunOnceId: "Delet
 
 [Code]
 
+// Show custom parameter help when /? is passed.
+function InitializeSetup: Boolean;
+begin
+  Result := True;
+  if FindCmdLineSwitch('?', True) or FindCmdLineSwitch('help', True) then
+  begin
+    MsgBox(
+      'SMTP Relay Installer' + #13#10 +
+      #13#10 +
+      'Standard Inno Setup options apply, plus:' + #13#10 +
+      #13#10 +
+      '  /config="path\to\config.json"' + #13#10 +
+      '      Pre-seeds the service configuration file.' + #13#10 +
+      '      Accepts absolute or relative paths.' + #13#10 +
+      '      Suppresses the post-install Config GUI launch.' + #13#10 +
+      #13#10 +
+      'Example:' + #13#10 +
+      '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"',
+      mbInformation, MB_OK);
+    Result := False;
+  end;
+end;
+
 // Returns the value of /config="..." from the command line, or empty string.
 function GetConfigParam: String;
 var
