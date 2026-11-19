@@ -35,38 +35,13 @@ Filename: "sc.exe"; Parameters: "delete ""SMTPRelayService"""; RunOnceId: "Delet
 
 [Code]
 
-// Show custom parameter help when /? or /help is passed.
-function InitializeSetup: Boolean;
+// Resolved absolute path to the supplied config file.
+// Set in InitializeSetup (before UAC elevation changes the working directory)
+// and used in CurStepChanged.
 var
-  i: Integer;
-  p, nl, msg: String;
-begin
-  Result := True;
-  for i := 1 to ParamCount do
-  begin
-    p := LowerCase(ParamStr(i));
-    if (p = '/?') or (p = '/help') then
-    begin
-      nl := #13#10;
-      msg := 'SMTP Relay Installer' + nl +
-             nl +
-             'Standard Inno Setup options apply, plus:' + nl +
-             nl +
-             '  /config="path\to\config.json"' + nl +
-             '      Pre-seeds the service configuration file.' + nl +
-             '      Accepts absolute or relative paths.' + nl +
-             '      Suppresses the post-install Config GUI launch.' + nl +
-             nl +
-             'Example:' + nl +
-             '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"';
-      MsgBox(msg, mbInformation, MB_OK);
-      Result := False;
-      Exit;
-    end;
-  end;
-end;
+  ResolvedConfigPath: String;
 
-// Returns the value of /config="..." from the command line, or empty string.
+// Returns the raw value of /config="..." from the command line, or empty string.
 function GetConfigParam: String;
 var
   i: Integer;
@@ -90,7 +65,48 @@ end;
 // Returns true when a /config= argument was supplied.
 function ConfigFileProvided: Boolean;
 begin
-  Result := GetConfigParam <> '';
+  Result := ResolvedConfigPath <> '';
+end;
+
+// Resolve the config path early, before UAC elevation can change the working directory.
+// ExpandFileName resolves relative paths against the current working directory.
+// Also handles /? and /help.
+function InitializeSetup: Boolean;
+var
+  i: Integer;
+  p, raw, nl, msg: String;
+begin
+  Result := True;
+
+  // Handle /? and /help
+  for i := 1 to ParamCount do
+  begin
+    p := LowerCase(ParamStr(i));
+    if (p = '/?') or (p = '/help') then
+    begin
+      nl := #13#10;
+      msg := 'SMTP Relay Installer' + nl +
+             nl +
+             'Standard Inno Setup options apply, plus:' + nl +
+             nl +
+             '  /config="path\to\config.json"' + nl +
+             '      Pre-seeds the service configuration file.' + nl +
+             '      Accepts absolute or relative paths.' + nl +
+             '      Suppresses the post-install Config GUI launch.' + nl +
+             nl +
+             'Example:' + nl +
+             '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"';
+      MsgBox(msg, mbInformation, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
+
+  // Resolve /config= path now, while the working directory is still the launch directory.
+  // UAC elevation changes the working directory, so we cannot do this in CurStepChanged.
+  raw := GetConfigParam;
+  if raw <> '' then
+    ResolvedConfigPath := ExpandFileName(raw);
 end;
 
 // Copy the supplied config into place before the service starts (always overwrite).
@@ -98,20 +114,16 @@ end;
 // the config is in place when the service starts for the first time.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  src, dest: String;
+  dest: String;
 begin
   if CurStep = ssInstall then
   begin
-    src := GetConfigParam;
-    if src = '' then Exit;
-
-    // Resolve relative paths against the directory the installer was launched from.
-    src := ExpandFileName(src);
+    if ResolvedConfigPath = '' then Exit;
 
     // Config lives one level above the service and gui folders
     dest := ExpandConstant('{app}\config.json');
 
-    if not FileCopy(src, dest, False) then
+    if not FileCopy(ResolvedConfigPath, dest, False) then
       MsgBox('Warning: could not copy config file to ' + dest + '. You can copy it manually or use the Config GUI.', mbError, MB_OK);
   end;
 end;
