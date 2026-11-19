@@ -35,55 +35,18 @@ Filename: "sc.exe"; Parameters: "delete ""SMTPRelayService"""; RunOnceId: "Delet
 
 [Code]
 
-// Resolved absolute path to the supplied config file.
-// Set in InitializeSetup (before UAC elevation changes the working directory)
-// and used in CurStepChanged.
-var
-  ResolvedConfigPath: String;
+// /config= parsing and path resolution, shared with the automated
+// path-resolution test in installer/test/probe.iss.
+#include "configpath.iss"
 
-// Returns the raw value of /config="..." from the command line, or empty string.
-function GetConfigParam: String;
-var
-  i: Integer;
-  param: String;
-begin
-  Result := '';
-  for i := 1 to ParamCount do
-  begin
-    param := ParamStr(i);
-    if Pos('/config=', LowerCase(param)) = 1 then
-    begin
-      Result := Copy(param, Length('/config=') + 1, Length(param));
-      // Strip surrounding quotes if present
-      if (Length(Result) >= 2) and (Result[1] = '"') and (Result[Length(Result)] = '"') then
-        Result := Copy(Result, 2, Length(Result) - 2);
-      Exit;
-    end;
-  end;
-end;
-
-// Returns true when a /config= argument was supplied.
-function ConfigFileProvided: Boolean;
-begin
-  Result := ResolvedConfigPath <> '';
-end;
-
-// Resolve the config path, handling both absolute paths and paths relative to
-// the installer's own directory.  We cannot rely on the shell working directory
-// because Inno Setup self-extracts to a temp folder before any Pascal Script
-// runs, changing the process CWD away from the launch location.
-// Using the installer's directory (ExtractFilePath(ParamStr(0))) is predictable
-// and consistent: relative paths are resolved from the same folder as the .exe.
-// Also handles /? and /help.
+// Handles /? and /help, then resolves /config=.
 function InitializeSetup: Boolean;
 var
   i: Integer;
-  p, raw, nl, msg: String;
-  installerDir: String;
+  p, nl, msg: String;
 begin
   Result := True;
 
-  // Handle /? and /help
   for i := 1 to ParamCount do
   begin
     p := LowerCase(ParamStr(i));
@@ -96,32 +59,33 @@ begin
              nl +
              '  /config="path\to\config.json"' + nl +
              '      Pre-seeds the service configuration file.' + nl +
-             '      Accepts absolute or relative paths.' + nl +
-             '      Relative paths are resolved from the installer''s directory.' + nl +
              '      Suppresses the post-install Config GUI launch.' + nl +
+             nl +
+             '      Absolute paths are used as given. A relative path is' + nl +
+             '      looked for relative to the current directory, then to' + nl +
+             '      the installer''s folder, then to its parent folder.' + nl +
              nl +
              'Examples:' + nl +
              '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"' + nl +
-             '  SmtpRelaySetup.exe /SILENT /config="config.json"  (same folder as installer)';
+             '  SmtpRelaySetup.exe /SILENT /config="config.json"' + nl +
+             '  assets\SmtpRelaySetup.exe /SILENT /config="assets\config.json"';
       MsgBox(msg, mbInformation, MB_OK);
       Result := False;
       Exit;
     end;
   end;
 
-  raw := GetConfigParam;
-  if raw <> '' then
+  InitConfigParam;
+
+  // Fail loudly and early rather than installing with the wrong config.
+  if ConfigParamGiven and (ResolvedConfigPath = '') then
   begin
-    // If the path is already absolute, use it directly.
-    // Otherwise resolve relative to the installer's own directory, which is
-    // reliable regardless of UAC elevation or CWD changes.
-    if PathIsRooted(raw) then
-      ResolvedConfigPath := raw
-    else
-    begin
-      installerDir := ExtractFilePath(ParamStr(0));
-      ResolvedConfigPath := AddBackslash(installerDir) + raw;
-    end;
+    MsgBox('Setup could not find the config file given by /config=.' + #13#10 + #13#10 +
+           ConfigSearchLog + #13#10 +
+           'Check the path, or pass an absolute path.',
+           mbError, MB_OK);
+    Result := False;
+    Exit;
   end;
 end;
 
@@ -140,6 +104,10 @@ begin
     dest := ExpandConstant('{app}\config.json');
 
     if not FileCopy(ResolvedConfigPath, dest, False) then
-      MsgBox('Warning: could not copy config file to ' + dest + '. You can copy it manually or use the Config GUI.', mbError, MB_OK);
+      MsgBox('Warning: could not copy' + #13#10 +
+             '  ' + ResolvedConfigPath + #13#10 +
+             'to' + #13#10 +
+             '  ' + dest + #13#10 + #13#10 +
+             'You can copy it manually or use the Config GUI.', mbError, MB_OK);
   end;
 end;
