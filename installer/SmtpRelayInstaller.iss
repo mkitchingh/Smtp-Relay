@@ -35,6 +35,37 @@ Filename: "sc.exe"; Parameters: "delete ""SMTPRelayService"""; RunOnceId: "Delet
 
 [Code]
 
+// Show custom parameter help when /? or /help is passed.
+function InitializeSetup: Boolean;
+var
+  i: Integer;
+  p, nl, msg: String;
+begin
+  Result := True;
+  for i := 1 to ParamCount do
+  begin
+    p := LowerCase(ParamStr(i));
+    if (p = '/?') or (p = '/help') then
+    begin
+      nl := #13#10;
+      msg := 'SMTP Relay Installer' + nl +
+             nl +
+             'Standard Inno Setup options apply, plus:' + nl +
+             nl +
+             '  /config="path\to\config.json"' + nl +
+             '      Pre-seeds the service configuration file.' + nl +
+             '      Accepts absolute or relative paths.' + nl +
+             '      Suppresses the post-install Config GUI launch.' + nl +
+             nl +
+             'Example:' + nl +
+             '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"';
+      MsgBox(msg, mbInformation, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
+end;
+
 // Returns the value of /config="..." from the command line, or empty string.
 function GetConfigParam: String;
 var
@@ -62,15 +93,20 @@ begin
   Result := GetConfigParam <> '';
 end;
 
-// After files are installed, copy the supplied config into place (always overwrite).
+// Copy the supplied config into place before the service starts (always overwrite).
+// ssInstall fires after files are extracted but before [Run] entries (sc start), so
+// the config is in place when the service starts for the first time.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   src, dest: String;
 begin
-  if CurStep = ssPostInstall then
+  if CurStep = ssInstall then
   begin
     src := GetConfigParam;
     if src = '' then Exit;
+
+    // Resolve relative paths against the directory the installer was launched from.
+    src := ExpandFileName(src);
 
     // Config lives one level above the service and gui folders
     dest := ExpandConstant('{app}\config.json');

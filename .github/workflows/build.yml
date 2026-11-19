@@ -41,6 +41,11 @@ jobs:
           -p:PublishSingleFile=true
           -o installer/output/gui
 
+      # ---- Validate Inno Setup Pascal Script -----------------------
+      - name: Validate installer script
+        shell: pwsh
+        run: python installer/validate-iss.py installer/SmtpRelayInstaller.iss
+
       # ---- Compile Inno Setup --------------------------------------
       - name: Compile installer
         run: '& "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" installer\\SmtpRelayInstaller.iss'
