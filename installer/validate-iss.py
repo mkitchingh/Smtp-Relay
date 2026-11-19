@@ -35,6 +35,11 @@ KNOWN_IDENTIFIERS = {
     # Path/expand
     'ExpandConstant', 'ExpandFileName', 'GetShortName',
     'AddQuotes', 'RemoveQuotes',
+    'PathIsRooted', 'PathCombine', 'PathNormalizeSlashes',
+    'PathHasInvalidCharacters', 'PathSame', 'PathStartsWith', 'PathEndsWith',
+    'ExtractFileDir', 'ExtractFileDrive', 'ExtractRelativePath',
+    'AddBackslash', 'RemoveBackslash', 'RemoveBackslashUnlessRoot',
+    'GetCurrentDir', 'SetCurrentDir',
     # Command line
     'ParamCount', 'ParamStr',
     # Execution
