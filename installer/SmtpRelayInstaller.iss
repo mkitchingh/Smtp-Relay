@@ -77,37 +77,57 @@ begin
 
   InitConfigParam;
 
-  // Fail loudly and early rather than installing with the wrong config.
+  // Fail early rather than installing with no config at all. A silent install
+  // is typically unattended, so report through the log and the exit code
+  // instead of putting a modal dialog on a machine nobody is watching.
   if ConfigParamGiven and (ResolvedConfigPath = '') then
   begin
-    MsgBox('Setup could not find the config file given by /config=.' + #13#10 + #13#10 +
+    msg := 'Setup could not find the config file given by /config=.' + #13#10 + #13#10 +
            ConfigSearchLog + #13#10 +
-           'Check the path, or pass an absolute path.',
-           mbError, MB_OK);
+           'Check the path, or pass an absolute path.';
+    Log('/config= could not be resolved.' + #13#10 + ConfigSearchLog);
+    if not WizardSilent then
+      MsgBox(msg, mbError, MB_OK);
     Result := False;
     Exit;
   end;
 end;
 
-// Copy the supplied config into place before the service starts (always overwrite).
-// ssInstall fires after files are extracted but before [Run] entries (sc start), so
-// the config is in place when the service starts for the first time.
+// Put the supplied config in place before the service is created and started.
+//
+// ssInstall fires BEFORE Setup installs any files, so {app} does not exist
+// yet and a plain FileCopy here fails -- the directory has to be created
+// first. Copying at this point (rather than ssPostInstall) guarantees the
+// config is on disk before the [Run] entries create and start the service,
+// so the service reads the intended configuration on its very first start.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  dest: String;
+  dest, appDir: String;
 begin
   if CurStep = ssInstall then
   begin
     if ResolvedConfigPath = '' then Exit;
 
     // Config lives one level above the service and gui folders
-    dest := ExpandConstant('{app}\config.json');
+    appDir := ExpandConstant('{app}');
+    dest   := appDir + '\config.json';
+
+    // {app} is not created until Setup starts installing files.
+    if not DirExists(appDir) then
+    begin
+      if not ForceDirectories(appDir) then
+        RaiseException('Setup could not create ' + appDir +
+                       ' in order to place the /config= file.');
+    end;
 
     if not FileCopy(ResolvedConfigPath, dest, False) then
-      MsgBox('Warning: could not copy' + #13#10 +
-             '  ' + ResolvedConfigPath + #13#10 +
-             'to' + #13#10 +
-             '  ' + dest + #13#10 + #13#10 +
-             'You can copy it manually or use the Config GUI.', mbError, MB_OK);
+      RaiseException('Setup could not copy' + #13#10 +
+                     '  ' + ResolvedConfigPath + #13#10 +
+                     'to' + #13#10 +
+                     '  ' + dest + #13#10 + #13#10 +
+                     'The service would start with the wrong configuration, ' +
+                     'so Setup has stopped.');
+
+    Log('Seeded config from ' + ResolvedConfigPath + ' to ' + dest);
   end;
 end;

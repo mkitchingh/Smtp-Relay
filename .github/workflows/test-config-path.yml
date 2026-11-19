@@ -235,13 +235,22 @@ jobs:
             Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
 
+          $log = ''
           if (Test-Path "C:\e2e-install.log") {
+            $log = Get-Content "C:\e2e-install.log" -Raw
             Write-Host "--- install log (tail) ---"
             Get-Content "C:\e2e-install.log" -Tail 40
           }
 
           if (-not (Test-Path $installed)) {
             throw "FAIL: $installed was never created"
+          }
+
+          # A /SILENT install is unattended. A modal dialog there blocks a
+          # deployment on a machine nobody is watching, so treat one as a
+          # failure even when the file did land.
+          if ($log -match 'Message box') {
+            throw "FAIL: a modal dialog was shown during a /SILENT install"
           }
 
           $content = Get-Content $installed -Raw

@@ -60,7 +60,7 @@ KNOWN_IDENTIFIERS = {
     'InstallOnThisVersion', 'SetupMessage',
     'ActiveLanguage', 'CustomMessage',
     'MinimizePathName', 'GetEnv', 'GetCurrentDir', 'SetCurrentDir',
-    'BringToFrontAndRestore',
+    'BringToFrontAndRestore', 'Log', 'RaiseException', 'Abort',
     # Pascal built-ins
     'Exit', 'Halt', 'Result',
     'True', 'False',
