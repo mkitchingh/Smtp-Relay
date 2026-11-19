@@ -1,29 +1,29 @@
-; ---------------------------------------------------------------------------
-; Shared /config= command-line handling.
-;
-; Included by both SmtpRelayInstaller.iss (the real installer) and
-; test/probe.iss (the automated path-resolution test) so the logic under
-; test is literally the logic that ships.
-;
-; Relative path handling
-; ----------------------
-; A relative /config= path is ambiguous: it may be written relative to the
-; shell's working directory, or relative to the installer itself. Real-world
-; usage (see issues #19 / #29) looks like:
-;
-;     cd C:\deploy
-;     assets\SmtpRelaySetup.exe /SILENT /config="assets\config.json"
-;
-; Here BOTH paths are relative to C:\deploy, so the config is at
-; C:\deploy\assets\config.json -- which is neither "relative to CWD as the
-; installer sees it" (Setup relaunches itself from a temp copy, so the process
-; CWD is unreliable) nor "relative to the installer's own folder" (that would
-; give C:\deploy\assets\assets\config.json).
-;
-; Rather than guess which base is correct, we try each plausible base in turn
-; and take the first one that actually exists on disk. Every candidate is
-; gated on FileExists, so we can never silently resolve to a wrong path.
-; ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Shared /config= command-line handling.
+//
+// Included by both SmtpRelayInstaller.iss (the real installer) and
+// test/probe.iss (the automated path-resolution test) so the logic under
+// test is literally the logic that ships.
+//
+// Relative path handling
+// ----------------------
+// A relative /config= path is ambiguous: it may be written relative to the
+// shell's working directory, or relative to the installer itself. Real-world
+// usage (see issues #19 / #29) looks like:
+//
+//     cd C:\deploy
+//     assets\SmtpRelaySetup.exe /SILENT /config="assets\config.json"
+//
+// Here BOTH paths are relative to C:\deploy, so the config is at
+// C:\deploy\assets\config.json -- which is neither "relative to CWD as the
+// installer sees it" (Setup relaunches itself from a temp copy, so the process
+// CWD is unreliable) nor "relative to the installer's own folder" (that would
+// give C:\deploy\assets\assets\config.json).
+//
+// Rather than guess which base is correct, we try each plausible base in turn
+// and take the first one that actually exists on disk. Every candidate is
+// gated on FileExists, so we can never silently resolve to a wrong path.
+// ---------------------------------------------------------------------------
 
 var
   ConfigParamGiven: Boolean;    // /config= was supplied (regardless of success)

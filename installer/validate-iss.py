@@ -129,9 +129,19 @@ def strip_noise(code):
     code = re.sub(r"'(?:''|[^'])*'", "''", code)   # string literals
     code = re.sub(r'//[^\n]*', '', code)            # // comments
     code = re.sub(r'\{[^}]*\}', '', code)           # { } comments
-    code = re.sub(r'^\s*;.*$', '', code, flags=re.MULTILINE)  # ; comments
     code = re.sub(r'^\s*#.*$', '', code, flags=re.MULTILINE)  # preprocessor
     return code
+
+
+def find_semicolon_comments(body):
+    """Lines starting with ';' are INI-style comments, valid in .iss *sections*
+    but NOT inside [Code] -- there the compiler parses them as Pascal and fails
+    with "'BEGIN' expected". Everything checked here ends up inside [Code]."""
+    bad = []
+    for n, line in enumerate(body.split('\n'), start=1):
+        if re.match(r'^\s*;', line):
+            bad.append((n, line.strip()))
+    return bad
 
 
 def validate(entry_path):
@@ -147,6 +157,12 @@ def validate(entry_path):
         declared.update(DECL_RE.findall(body))
 
     known = KNOWN_IDENTIFIERS | declared
+
+    # ';' comments inside [Code] are a compile error, not a comment.
+    semi_errors = []
+    for label, body in sources:
+        for n, line in find_semicolon_comments(body):
+            semi_errors.append((label, n, line))
 
     unknown = []
     for label, body in sources:
@@ -166,16 +182,26 @@ def validate(entry_path):
     if declared:
         print(f"Declared in script: {', '.join(sorted(declared))}")
 
+    ok = True
+
+    if semi_errors:
+        print("\nERROR: ';' comments inside [Code] -- use '//' instead.")
+        print("       The compiler parses these as Pascal: \"'BEGIN' expected\".")
+        for label, n, line in semi_errors:
+            print(f"  {os.path.basename(label)}:{n}: {line[:72]}")
+        ok = False
+
     if deduped:
         print("\nWARNING: Possibly unknown Inno Setup identifiers:")
         for label, name in deduped:
             print(f"  {name}  ({os.path.basename(label)})")
         print("\nVerify each against "
               "https://jrsoftware.org/ishelp/index.php?topic=scriptfunctions")
-        return False
+        ok = False
 
-    print("OK: All identifiers resolve to built-ins or script declarations.")
-    return True
+    if ok:
+        print("OK: All identifiers resolve to built-ins or script declarations.")
+    return ok
 
 
 if __name__ == '__main__':
