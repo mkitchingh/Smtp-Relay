@@ -34,7 +34,7 @@ KNOWN_IDENTIFIERS = {
     'HKLM', 'HKCU',
     # Path/expand
     'ExpandConstant', 'ExpandFileName', 'GetShortName',
-    'AddQuotes', 'RemoveQuotes',
+    'AddQuotes', 'RemoveQuotes', 'PathIsRooted',
     # Command line
     'ParamCount', 'ParamStr',
     # Execution
