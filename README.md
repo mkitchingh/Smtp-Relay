@@ -14,7 +14,7 @@ Current release: [https://github.com/mkitchingh/Smtp-Relay/releases/latest/downl
 
 **You may see Windows Defender or Unknown Publisher messages when you install. I'd prefer not to pay the code signing certificate cost, but I will if it causes a problem for people.  
 
-<img width="908" height="793" alt="SMTP-Pic153" src="https://github.com/user-attachments/assets/19c7e93c-6edf-43b4-bf47-c89e670de76c" />
+<img width="907" height="791" alt="SMTP Relay Configuration GUI, version 1.5.7" src="docs/smtp-relay-config.png" />
 
 ## Silent / Unattended Installation
 
