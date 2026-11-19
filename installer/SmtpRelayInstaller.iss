@@ -62,12 +62,14 @@ begin
   Result := GetConfigParam <> '';
 end;
 
-// After files are installed, copy the supplied config into place (always overwrite).
+// Copy the supplied config into place before the service starts (always overwrite).
+// ssInstall fires after files are extracted but before [Run] entries (sc start), so
+// the config is in place when the service starts for the first time.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   src, dest: String;
 begin
-  if CurStep = ssPostInstall then
+  if CurStep = ssInstall then
   begin
     src := GetConfigParam;
     if src = '' then Exit;
