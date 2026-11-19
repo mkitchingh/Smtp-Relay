@@ -1,6 +1,6 @@
 [Setup]
 AppName=SMTP Relay
-AppVersion=1.5.6
+AppVersion=1.5.7
 DefaultDirName={pf64}\SMTP Relay
 ArchitecturesInstallIn64BitMode=x64
 DefaultGroupName=SMTP Relay
