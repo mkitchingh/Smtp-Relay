@@ -35,28 +35,34 @@ Filename: "sc.exe"; Parameters: "delete ""SMTPRelayService"""; RunOnceId: "Delet
 
 [Code]
 
-// Show custom parameter help when /? is passed.
+// Show custom parameter help when /? or /help is passed.
 function InitializeSetup: Boolean;
 var
-  nl, msg: String;
+  i: Integer;
+  p, nl, msg: String;
 begin
   Result := True;
-  if FindCmdLineSwitch('?', True) or FindCmdLineSwitch('help', True) then
+  for i := 1 to ParamCount do
   begin
-    nl := #13#10;
-    msg := 'SMTP Relay Installer' + nl +
-           nl +
-           'Standard Inno Setup options apply, plus:' + nl +
-           nl +
-           '  /config="path\to\config.json"' + nl +
-           '      Pre-seeds the service configuration file.' + nl +
-           '      Accepts absolute or relative paths.' + nl +
-           '      Suppresses the post-install Config GUI launch.' + nl +
-           nl +
-           'Example:' + nl +
-           '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"';
-    MsgBox(msg, mbInformation, MB_OK);
-    Result := False;
+    p := LowerCase(ParamStr(i));
+    if (p = '/?') or (p = '/help') then
+    begin
+      nl := #13#10;
+      msg := 'SMTP Relay Installer' + nl +
+             nl +
+             'Standard Inno Setup options apply, plus:' + nl +
+             nl +
+             '  /config="path\to\config.json"' + nl +
+             '      Pre-seeds the service configuration file.' + nl +
+             '      Accepts absolute or relative paths.' + nl +
+             '      Suppresses the post-install Config GUI launch.' + nl +
+             nl +
+             'Example:' + nl +
+             '  SmtpRelaySetup.exe /SILENT /config="C:\deploy\config.json"';
+      MsgBox(msg, mbInformation, MB_OK);
+      Result := False;
+      Exit;
+    end;
   end;
 end;
 
