@@ -30,4 +30,13 @@ SmtpRelaySetup.exe /SILENT
 SmtpRelaySetup.exe /SILENT /config="C:\path\to\config.json"
 ```
 
-The config file is the same `config.json` the service uses at runtime. Export one from an existing installation at `C:\ProgramData\SmtpRelay\config.json` and use it as a template for deployment.
+The config file is the same `config.json` the service uses at runtime. Take one from an existing installation at `C:\Program Files\SMTP Relay\config.json` and use it as a template for deployment.
+
+`/config=` accepts a relative path as well as an absolute one. A relative path is looked for in the current directory, then beside the installer, then in the installer's parent folder, so deployment layouts like this work as written:
+
+```
+cd C:\deploy
+assets\SmtpRelaySetup.exe /SILENT /config="assets\config.json"
+```
+
+If the file cannot be found, Setup stops instead of installing with no configuration. Under `/SILENT` it reports through the exit code and the `/LOG=` file rather than showing a dialog, so an unattended deployment never blocks on a prompt.
